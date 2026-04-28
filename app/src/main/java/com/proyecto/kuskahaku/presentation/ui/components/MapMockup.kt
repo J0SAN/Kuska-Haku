@@ -6,10 +6,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-
 @Composable
-fun MapMockup() {
-    Canvas(modifier = Modifier.fillMaxSize()) {
+fun MapMockup(
+    busX: Float, // 1. Recibimos la posición X en tiempo real
+    busY: Float, // 2. Recibimos la posición Y en tiempo real
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier.fillMaxSize()) {
         val canvasWidth = size.width
         val canvasHeight = size.height
 
@@ -32,18 +35,19 @@ fun MapMockup() {
             )
         }
 
-        // Dibujamos un "Paradero" (Círculo morado)
+        // Dibujamos un "Paradero" fijo (Círculo morado)
         drawCircle(
             color = Color(0xFF5D327C),
             radius = 25f,
             center = Offset(x = canvasWidth * 0.4f, y = canvasHeight * 0.5f)
         )
 
-        // Dibujamos un "Bus" (Círculo verde)
+        // Dibujamos un "Bus" móvil (Círculo verde)
         drawCircle(
             color = Color(0xFF2E7D32),
             radius = 30f,
-            center = Offset(x = canvasWidth * 0.7f, y = canvasHeight * 0.3f)
+            // 3. AQUÍ está la clave: usamos las variables en lugar de valores fijos
+            center = Offset(x = busX, y = busY)
         )
     }
 }

@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun PerfilScreen() {
+fun PerfilScreen(onLogout: () -> Unit) { // <-- 1. Añadimos el parámetro aquí
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -46,7 +46,7 @@ fun PerfilScreen() {
         Spacer(modifier = Modifier.height(40.dp))
 
         Button(
-            onClick = { /* Acción de cerrar sesión futura */ },
+            onClick = { onLogout() }, // <-- 2. Cambiamos el comentario por la acción real
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)), // Rojo para cierre
             modifier = Modifier.fillMaxWidth(0.8f).height(50.dp)
         ) {

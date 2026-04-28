@@ -1,4 +1,4 @@
-package com.proyecto.kuskahaku.presentation.theme.ui
+package com.proyecto.kuskahaku.presentation.theme
 
 import androidx.compose.ui.graphics.Color
 

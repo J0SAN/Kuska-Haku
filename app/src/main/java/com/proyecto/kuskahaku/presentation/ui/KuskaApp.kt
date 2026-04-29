@@ -18,6 +18,8 @@ import com.proyecto.kuskahaku.presentation.ui.screens.PasajeroDashboardScreen
 import com.proyecto.kuskahaku.presentation.ui.screens.PerfilScreen
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import com.proyecto.kuskahaku.presentation.ui.screens.RutasScreen
+import com.proyecto.kuskahaku.presentation.ui.screens.TicketsScreen
 
 @Composable
 fun KuskaApp() {
@@ -42,13 +44,11 @@ fun KuskaApp() {
                 PasajeroDashboardScreen()
             }
             composable(NavItem.Rutas.route) {
-                // Pantalla temporal vacía por ahora
+                RutasScreen()
             }
             composable(NavItem.Tickets.route) {
-                // Pantalla temporal vacía por ahora
+                TicketsScreen()
             }
-
-            // 2. Modificamos la ruta de Perfil para que exija Login
             composable(NavItem.Perfil.route) {
                 if (!isLoggedIn) {
                     // Si no está logueado, mostramos la pantalla de Login

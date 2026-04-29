@@ -16,7 +16,7 @@
         android:theme="@style/Theme.KuskaHaku">
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AQUÍ_VA_TU_CLAVE_DE_API_REAL_QUE_EMPIEZA_CON_AIza" />
+            android:value="AIzaSyC25b5j_BlkByMpxhdQh1j8X-_hWtCKgGM" />
 
         <activity
             android:name=".MainActivity"

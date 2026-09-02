@@ -1,0 +1,47 @@
+asyncapi: 2.6.0
+info:
+  title: Kuska Haku GPS Position API
+  version: 1.0.0
+  description: Contrato para la ingesta (MQTT) y distribución (WebSocket) de coordenadas GPS.
+channels:
+  gps/positions:
+    publish:
+      summary: El simulador publica las coordenadas del bus aquí.
+      message:
+        $ref: "#/components/messages/GpsPosition"
+    subscribe:
+      summary: La app móvil recibe las posiciones actualizadas desde aquí.
+      message:
+        $ref: "#/components/messages/GpsPosition"
+components:
+  messages:
+    GpsPosition:
+      name: GpsPosition
+      title: Posición GPS
+      payload:
+        type: object
+        required:
+          - bus_id
+          - route_id
+          - latitude
+          - longitude
+          - timestamp
+        properties:
+          bus_id:
+            type: string
+            description: Identificador único del bus.
+          route_id:
+            type: string
+            description: Identificador de la ruta.
+          latitude:
+            type: number
+            format: float
+            description: Latitud actual.
+          longitude:
+            type: number
+            format: float
+            description: Longitud actual.
+          timestamp:
+            type: string
+            format: date-time
+            description: Momento exacto de la captura.

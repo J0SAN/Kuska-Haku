@@ -1,0 +1,14 @@
+# Archivos de configuración local y secretos (¡Crítico!)
+**/android/local.properties
+**/ios/Flutter/Env.xcconfig
+
+# Archivos autogenerados de Flutter y Dart
+.dart_tool/
+build/
+.packages
+.pub-cache/
+.pub/
+
+# Archivos de entorno de sistema operativo
+.DS_Store
+Thumbs.db

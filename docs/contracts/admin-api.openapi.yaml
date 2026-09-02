@@ -1,0 +1,38 @@
+openapi: 3.0.3
+info:
+  title: Kuska Haku Admin API
+  version: 1.0.0
+  description: Endpoints REST para la administración y monitoreo de salud.
+paths:
+  /health:
+    get:
+      summary: Verifica que el backend y Postgres estén conectados.
+      responses:
+        "200":
+          description: Todo está funcionando correctamente.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        timestamp:
+          type: string
+          format: date-time
+        checks:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: postgres
+              status:
+                type: string
+                example: ok

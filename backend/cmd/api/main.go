@@ -1,35 +1,36 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
+	"log"
 	"net/http"
-	"time"
+
+	// Usamos los adaptadores que programaste en el paso 3
+	"kuska-haku-backend/internal/adapters/mqtt"
+	"kuska-haku-backend/internal/adapters/redis"
+	"kuska-haku-backend/internal/adapters/websocket"
 )
 
-// healthHandler responde al endpoint /health requerido por la Fase 0
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	// Estructura JSON esperada según el README
-	response := map[string]interface{}{
-		"status":    "ok",
-		"timestamp": time.Now().Format(time.RFC3339),
-		"checks": []map[string]string{
-			{"name": "postgres", "status": "ok"},
-		},
-	}
-
-	json.NewEncoder(w).Encode(response)
-}
-
 func main() {
-	http.HandleFunc("/health", healthHandler)
+	// 1. Inicializamos Redis (nuestro PositionPublisher)
+	redisPublisher := redis.NewRedisPublisher("localhost:6379")
 
-	fmt.Println("kuska-haku backend escuchando en :8080")
-	// Levanta el servidor en el puerto 8080
-	error := http.ListenAndServe(":8080", nil)
-	if error != nil {
-		fmt.Printf("Error al iniciar el servidor: %s\n", error)
+	// 2. Inicializamos MQTT pasándole Redis para que inyecte los datos allí
+	mqttAdapter := mqtt.NewMqttAdapter("tcp://localhost:1883", redisPublisher)
+
+	// Arrancamos la escucha de MQTT en segundo plano
+	go mqttAdapter.Start()
+
+	// 3. Configuramos los endpoints HTTP
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"status":"ok"}`)) // Versión simple para la Fase 1
+	})
+
+	http.HandleFunc("/ws", websocket.HandleWS)
+
+	// 4. Levantamos el servidor
+	log.Println("kuska-haku backend escuchando en :8080")
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Fatalf("Error en el servidor: %v", err)
 	}
 }

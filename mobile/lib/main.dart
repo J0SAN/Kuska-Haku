@@ -1,27 +1,60 @@
 import 'dart:convert';
+
 import 'package:flutter/material.dart';
+
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-void main() {
-  runApp(const KuskaHakuApp());
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'auth/login_screen.dart';
+
+void main() async {
+  // Obligatorio para ejecutar código asíncrono nativo antes de arrancar la app
+
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Verificamos la sesión directamente en el punto de entrada
+
+  final prefs = await SharedPreferences.getInstance();
+
+  final token = prefs.getString('jwt_token');
+
+  final initialRoute = (token != null) ? '/map' : '/login';
+
+  runApp(KuskaHakuApp(initialRoute: initialRoute));
 }
 
 class KuskaHakuApp extends StatelessWidget {
-  const KuskaHakuApp({super.key});
+  final String initialRoute;
+
+  const KuskaHakuApp({super.key, required this.initialRoute});
 
   @override
   Widget build(BuildContext context) {
+    // Un único MaterialApp construido desde el inicio
+
     return MaterialApp(
       title: 'Kuska Haku Pasajero',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
         useMaterial3: true,
       ),
-      home: const MapScreen(),
+      initialRoute: initialRoute,
+      routes: {
+        '/login': (context) => const LoginScreen(),
+        '/map': (context) => const MapScreen(),
+      },
     );
   }
 }
+
+// ============================================================================
+
+// TU CÓDIGO INTACTO DE LA FASE 1 A PARTIR DE AQUÍ
+
+// ============================================================================
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -31,11 +64,14 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  // Ajuste de IP según el README: 10.0.2.2:8080 para Emulador Android
-  final String _backendHost = '10.254.83.86:8080';
+  final String _backendHost = '10.146.47.86:8080';
+
   late WebSocketChannel _channel;
 
-  // Centro inicial en Cajamarca
+  GoogleMapController? _mapController; // Controlador para mover la cámara
+
+  // Centro inicial temporal (se actualizará al recibir el primer dato)
+
   static const CameraPosition _initialPosition = CameraPosition(
     target: LatLng(-7.162, -78.500),
     zoom: 15,
@@ -46,6 +82,7 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+
     _connectWebSocket();
   }
 
@@ -54,27 +91,37 @@ class _MapScreenState extends State<MapScreen> {
 
     _channel.stream.listen((message) {
       final data = jsonDecode(message);
+
       _updateMarker(data['bus_id'], data['latitude'], data['longitude']);
     });
   }
 
   void _updateMarker(String busId, double lat, double lng) {
     final markerId = MarkerId(busId);
+
+    final position = LatLng(lat, lng);
+
     final marker = Marker(
       markerId: markerId,
-      position: LatLng(lat, lng),
-      // Marcador verde como pide la documentación
+      position: position,
       icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
     );
 
     setState(() {
       _markers[markerId] = marker;
     });
+
+    // Mueve la cámara automáticamente hacia donde está el bus
+
+    _mapController?.animateCamera(CameraUpdate.newLatLng(position));
   }
 
   @override
   void dispose() {
     _channel.sink.close();
+
+    _mapController?.dispose();
+
     super.dispose();
   }
 
@@ -82,13 +129,33 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Kuska Haku - Fase 1'),
+        title: const Text('Kuska Haku - Fase 1 & 2'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              final prefs = await SharedPreferences.getInstance();
+
+              await prefs.remove('jwt_token');
+
+              if (!context.mounted) return;
+
+              Navigator.pushReplacementNamed(context, '/login');
+            },
+          )
+        ],
       ),
       body: GoogleMap(
         initialCameraPosition: _initialPosition,
+
         markers: Set<Marker>.of(_markers.values),
-        onMapCreated: (GoogleMapController controller) {},
+
+        // Guardamos la referencia del controlador cuando el mapa termina de cargar
+
+        onMapCreated: (GoogleMapController controller) {
+          _mapController = controller;
+        },
       ),
     );
   }

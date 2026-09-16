@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-func TestPosition_Validate(t *testing.T) {
+func TestPositionValidate(t *testing.T) {
 	// Prueba 1: Un escenario correcto (ejemplo: coordenadas por Cajamarca)
 	validPos := Position{
 		BusID:     "bus-01",

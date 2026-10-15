@@ -1,10 +1,11 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiClient {
   // Ajusta la IP según tu entorno de pruebas (emulador vs dispositivo físico)
-  static const String baseUrl = 'http://10.146.47.86:8080/api/v1/auth';
+  static const String baseUrl = 'http://10.118.10.86:8080/api/v1/auth';
 
   Future<bool> login(String email, String password) async {
     try {
@@ -22,7 +23,7 @@ class ApiClient {
       }
       return false;
     } catch (e) {
-      print('Error de conexión: $e');
+      debugPrint('Error de conexión: $e');
       return false;
     }
   }

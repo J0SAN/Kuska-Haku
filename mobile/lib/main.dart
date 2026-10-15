@@ -64,7 +64,7 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  final String _backendHost = '10.146.47.86:8080';
+  final String _backendHost = '10.118.10.86:8080';
 
   late WebSocketChannel _channel;
 
@@ -129,7 +129,7 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Kuska Haku - Fase 1 & 2'),
+        title: const Text('Kuska Haku'),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           IconButton(

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 
-	// Ajusta el nombre de tu módulo
 	"kuska-haku-backend/internal/domain"
 )
 
@@ -19,30 +18,46 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 
 func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	query := `
-		INSERT INTO users (email, password_hash, full_name, role)
+		INSERT INTO kuska.users (email, password_hash, full_name, role)
 		VALUES ($1, $2, $3, $4)
-		RETURNING id`
+		RETURNING id, created_at`
 
-	err := r.db.QueryRowContext(ctx, query, user.Email, user.PasswordHash, user.FullName, user.Role).Scan(&user.ID)
-	return err
+	return r.db.QueryRowContext(ctx, query, user.Email, user.PasswordHash, user.FullName, user.Role).
+		Scan(&user.ID, &user.CreatedAt)
 }
 
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	query := `
-		SELECT id, email, password_hash, full_name, role
-		FROM users
+		SELECT id, email, password_hash, full_name, role, created_at
+		FROM kuska.users
 		WHERE email = $1`
 
-	row := r.db.QueryRowContext(ctx, query, email)
-
 	user := &domain.User{}
-	err := row.Scan(&user.ID, &user.Email, &user.PasswordHash, &user.FullName, &user.Role)
+	err := r.db.QueryRowContext(ctx, query, email).
+		Scan(&user.ID, &user.Email, &user.PasswordHash, &user.FullName, &user.Role, &user.CreatedAt)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, errors.New("usuario no encontrado")
 		}
 		return nil, err
 	}
+	return user, nil
+}
 
+func (r *UserRepository) GetByID(ctx context.Context, id string) (*domain.User, error) {
+	query := `
+		SELECT id, email, password_hash, full_name, role, created_at
+		FROM kuska.users
+		WHERE id = $1`
+
+	user := &domain.User{}
+	err := r.db.QueryRowContext(ctx, query, id).
+		Scan(&user.ID, &user.Email, &user.PasswordHash, &user.FullName, &user.Role, &user.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.New("usuario no encontrado")
+		}
+		return nil, err
+	}
 	return user, nil
 }

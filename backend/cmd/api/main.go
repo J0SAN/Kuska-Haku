@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"os"
 
-	_ "github.com/lib/pq" // Driver de Postgres
+	_ "github.com/lib/pq"
 
 	"kuska-haku-backend/internal/adapters/auth"
 	httpAdapter "kuska-haku-backend/internal/adapters/http"
@@ -14,26 +14,22 @@ import (
 	"kuska-haku-backend/internal/adapters/postgres"
 	"kuska-haku-backend/internal/adapters/redis"
 	"kuska-haku-backend/internal/adapters/websocket"
+	"kuska-haku-backend/internal/domain"
 	"kuska-haku-backend/internal/migrations"
 )
 
-type compositeAuthService struct {
-	*auth.BcryptService
-	*auth.JWTService
-}
-
 func main() {
-	// === 1. INFRAESTRUCTURA FASE 1 (Sockets, Redis, MQTT) ===
-	redisPublisher := redis.NewRedisPublisher("localhost:6379")
-	mqttAdapter := mqtt.NewMqttAdapter("tcp://localhost:1883", redisPublisher)
+	// === 1. INFRAESTRUCTURA FASE 1 (Redis + MQTT) ===
+	redisClient := redis.NewRedisPublisher("localhost:6379")
+	mqttAdapter := mqtt.NewMqttAdapter("tcp://localhost:1883", redisClient)
 	go mqttAdapter.Start()
 
-	//Instanciar y arrancar el suscriptor de Redis en segundo plano
-	redisSubscriber := redis.NewRedisSubscriber("localhost:6379")
-	go redisSubscriber.Start()
+	// === 2. INFRAESTRUCTURA FASE 2, 3 & 4 (PostgreSQL + PostGIS) ===
+	dbConnStr := os.Getenv("DATABASE_URL")
+	if dbConnStr == "" {
+		dbConnStr = "postgres://postgres:postgres@localhost:5432/kuskahaku?sslmode=disable"
+	}
 
-	// === 2. INFRAESTRUCTURA FASE 2 & 3 (Postgres, Auth, JWT, PostGIS) ===
-	dbConnStr := "postgres://postgres:postgres@localhost:5432/kuskahaku?sslmode=disable"
 	db, err := sql.Open("postgres", dbConnStr)
 	if err != nil {
 		log.Fatalf("Error al conectar a la base de datos: %v", err)
@@ -51,55 +47,74 @@ func main() {
 	// --- Inicialización de Repositorios ---
 	userRepo := postgres.NewUserRepository(db)
 	routeRepo := postgres.NewRouteRepository(db)
+	stopRepo := postgres.NewStopRepository(db)
 	fleetRepo := postgres.NewFleetRepository(db)
+	incomeRepo := postgres.NewIncomeRepository(db)
+	suggestionRepo := postgres.NewSuggestionRepository(db)
+	statsRepo := postgres.NewStatsRepository(db)
 
-	// --- Inicialización de Servicios ---
+	// --- Inicialización de Servicios de Seguridad ---
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
 		jwtSecret = "super-secret-key-para-desarrollo"
 	}
 
-	authSvc := &compositeAuthService{
-		BcryptService: auth.NewBcryptService(),
-		JWTService:    auth.NewJWTService(jwtSecret),
-	}
+	hasherSvc := auth.NewBcryptService()
+	tokenSvc := auth.NewJWTService(jwtSecret)
 
-	// --- Inicialización de Controladores y Middlewares ---
-	authController := httpAdapter.NewAuthController(userRepo, authSvc)
-	authMiddleware := httpAdapter.NewAuthMiddleware(authSvc)
-	adminController := httpAdapter.NewAdminController(routeRepo, fleetRepo)
+	// --- Inicialización de Gateway WebSocket (con JWT) y Controladores HTTP ---
+	wsGateway := websocket.NewGateway(redisClient, redisClient, tokenSvc)
+
+	authController := httpAdapter.NewAuthController(userRepo, hasherSvc, tokenSvc)
+	authMiddleware := httpAdapter.NewAuthMiddleware(tokenSvc)
+	adminController := httpAdapter.NewAdminController(routeRepo, fleetRepo, stopRepo)
+	passengerController := httpAdapter.NewPassengerController(routeRepo, fleetRepo, redisClient, routeRepo)
+	driverController := httpAdapter.NewDriverController(fleetRepo, routeRepo, incomeRepo)
+	suggestionController := httpAdapter.NewSuggestionController(suggestionRepo)
 
 	// === 3. ENRUTADOR (MUX) ===
 	mux := http.NewServeMux()
 
-	// Rutas Fase 1
+	// Salud y Tiempo Real (WebSocket autenticado por ruta)
 	mux.HandleFunc("/health", httpAdapter.HealthCheckHandler)
-	mux.HandleFunc("/ws", websocket.HandleWS)
+	mux.HandleFunc("/ws/routes/", wsGateway.ServeRoute)
+	mux.HandleFunc("/ws", wsGateway.ServeRoute)
 
-	// Rutas Fase 2 (Públicas)
+	// Autenticación (Fase 2)
 	mux.HandleFunc("POST /api/v1/auth/register", authController.Register)
 	mux.HandleFunc("POST /api/v1/auth/login", authController.Login)
+	mux.HandleFunc("GET /api/v1/auth/me", authMiddleware.RequireAuth(authController.Me))
 
-	// Rutas Fase 2 (Protegidas para validación de token)
-	mux.HandleFunc("GET /api/v1/auth/me", authMiddleware.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"message":"Acceso autorizado, token válido"}`))
-	}))
+	// Panel Administrativo: Rutas, Paraderos y Flota (Fase 3 & 4 - Solo Admin)
+	mux.HandleFunc("POST /api/v1/admin/routes", authMiddleware.RequireRole(adminController.CreateRoute, domain.RoleAdmin))
+	mux.HandleFunc("GET /api/v1/admin/routes", authMiddleware.RequireRole(adminController.GetRoutes, domain.RoleAdmin))
+	mux.HandleFunc("/api/v1/admin/routes/", authMiddleware.RequireRole(adminController.RouteItem, domain.RoleAdmin))
+	mux.HandleFunc("DELETE /api/v1/admin/stops/", authMiddleware.RequireRole(adminController.DeleteStop, domain.RoleAdmin))
 
-	// Rutas Fase 3 (Protegidas - Exclusivas para Admin)
-	// Envolvemos las funciones del controlador con el middleware RequireAuth
-	mux.HandleFunc("POST /api/v1/admin/routes", authMiddleware.RequireAuth(adminController.CreateRoute))
-	mux.HandleFunc("GET /api/v1/admin/routes", authMiddleware.RequireAuth(adminController.GetRoutes))
-	mux.HandleFunc("POST /api/v1/admin/fleet", authMiddleware.RequireAuth(adminController.CreateFleet))
-	mux.HandleFunc("GET /api/v1/admin/fleet", authMiddleware.RequireAuth(adminController.GetFleet))
+	mux.HandleFunc("POST /api/v1/admin/fleet", authMiddleware.RequireRole(adminController.CreateFleet, domain.RoleAdmin))
+	mux.HandleFunc("GET /api/v1/admin/fleet", authMiddleware.RequireRole(adminController.GetFleet, domain.RoleAdmin))
+	mux.HandleFunc("/api/v1/admin/fleet/", authMiddleware.RequireRole(adminController.FleetItem, domain.RoleAdmin))
 
-	// === 4. MIDDLEWARE CORS ===
-	// Envolvemos el multiplexor principal con el middleware para autorizar a React
+	// Pasajeros y consulta de ETA (Fase 4 - Cualquier usuario autenticado)
+	mux.HandleFunc("GET /api/v1/routes", authMiddleware.RequireAuth(passengerController.ListRoutes))
+	mux.HandleFunc("/api/v1/routes/", authMiddleware.RequireAuth(passengerController.RouteItem))
+
+	// Conductor: Mi Bus e Ingresos del turno (Fase 4 - Solo Driver)
+	mux.HandleFunc("GET /api/v1/driver/my-bus", authMiddleware.RequireRole(driverController.MyBus, domain.RoleDriver))
+	mux.HandleFunc("/api/v1/driver/incomes", authMiddleware.RequireRole(driverController.Incomes, domain.RoleDriver))
+
+	// Buzón de Sugerencias (Fase 4)
+	mux.HandleFunc("POST /api/v1/suggestions", authMiddleware.RequireRole(suggestionController.Create, domain.RolePassenger, domain.RoleDriver))
+	mux.HandleFunc("GET /api/v1/admin/suggestions", authMiddleware.RequireRole(suggestionController.AdminCollection, domain.RoleAdmin))
+	mux.HandleFunc("/api/v1/admin/suggestions/", authMiddleware.RequireRole(suggestionController.AdminItem, domain.RoleAdmin))
+
+	// Dashboard Operativo (Fase 4 - Solo Admin)
+	mux.HandleFunc("GET /api/v1/admin/dashboard", authMiddleware.RequireRole(httpAdapter.DashboardHandler(statsRepo), domain.RoleAdmin))
+
+	// === 4. MIDDLEWARE CORS & SERVIDOR ===
 	handlerConCORS := httpAdapter.CORSMiddleware(mux)
 
-	// === 5. LEVANTAR EL SERVIDOR ===
 	log.Println("kuska-haku backend escuchando en :8080")
-	// Pasamos 'handlerConCORS' en lugar de 'mux'
 	if err := http.ListenAndServe(":8080", handlerConCORS); err != nil {
 		log.Fatalf("Error en el servidor: %v", err)
 	}

@@ -1,26 +1,44 @@
 package main
 
 import (
+	"flag"
 	"log"
+	"net/url"
 
 	"github.com/gorilla/websocket"
 )
 
 func main() {
-	url := "ws://localhost:8080/ws"
-	log.Printf("Conectando al WebSocket del backend en: %s", url)
+	host := flag.String("host", "localhost:8080", "host:puerto del backend")
+	routeID := flag.String("route", "ruta-01", "ID o código de la ruta a escuchar")
+	token := flag.String("token", "", "JWT del usuario (obligatorio desde la Fase 4)")
+	flag.Parse()
 
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	q := url.Values{}
+	q.Set("token", *token)
+	u := url.URL{
+		Scheme:   "ws",
+		Host:     *host,
+		Path:     "/ws/routes/" + *routeID,
+		RawQuery: q.Encode(),
+	}
+
+	// No se imprime RawQuery en consola para no exponer el token JWT en los logs.
+	log.Printf("wsclient: conectando a ws://%s%s", u.Host, u.Path)
+
+	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
-		log.Fatalf("Fallo al conectar: %v", err)
+		log.Fatalf("wsclient: fallo al conectar: %v", err)
 	}
 	defer conn.Close()
 
+	log.Printf("wsclient: conectado. Esperando posiciones de la ruta %s...", *routeID)
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
-			log.Fatalf("Error leyendo mensaje: %v", err)
+			log.Printf("wsclient: conexión cerrada: %v", err)
+			return
 		}
-		log.Printf("Recibido del servidor: %s", string(message))
+		log.Printf("← %s", string(message))
 	}
 }

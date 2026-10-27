@@ -1,0 +1,212 @@
+openapi: 3.0.3
+info:
+  title: Kuska Haku — API para las apps móviles (Pasajero y Conductor)
+  version: 0.1.0-mvp
+  description: >
+    Endpoints consumidos por las apps móviles. Todos exigen un JWT válido
+    (ver auth-api.openapi.yaml). Los endpoints /api/v1/driver/* exigen
+    además el rol "driver".
+
+servers:
+  - url: http://localhost:8080
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/v1/routes:
+    get:
+      summary: Rutas activas con su trazado (cualquier usuario autenticado)
+      responses:
+        "200":
+          description: Lista de rutas registradas con su polígono de coordenadas
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Route" }
+
+  /api/v1/routes/{id}/eta:
+    get:
+      summary: ETA de cada bus en vivo hacia cada paradero de la ruta
+      description: >
+        La distancia se mide A LO LARGO del trazado (PostGIS), no en línea
+        recta. Un bus sin posición reciente en Redis (expira a los 2 min) no
+        aparece. Si el bus reporta menos de 8 km/h se usa una velocidad de
+        referencia de 20 km/h, para que un bus detenido no genere un ETA
+        infinito. Un paradero que el bus ya pasó trae passed=true y
+        etaSeconds=null.
+      parameters:
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+      responses:
+        "200":
+          description: ETA por bus
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EtaResponse" }
+        "404": { description: Ruta inexistente }
+
+  /api/v1/suggestions:
+    post:
+      summary: Envía una sugerencia (rol passenger o driver)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string, minLength: 10, maxLength: 1000 }
+      responses:
+        "201": { description: Sugerencia registrada }
+        "400": { description: Mensaje fuera de los límites de longitud }
+        "403": { description: El rol admin no envía sugerencias, las lee }
+
+  /api/v1/driver/my-bus:
+    get:
+      summary: Bus activo asignado al conductor autenticado y su ruta
+      description: >
+        La app del Conductor lo usa para saber con qué bus_id (= bus.busId)
+        y route_id publicar sus posiciones por MQTT.
+      responses:
+        "200":
+          description: Bus y ruta
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MyBusResponse" }
+        "404": { description: El administrador todavía no le asignó un bus }
+
+  /api/v1/driver/incomes:
+    get:
+      summary: Registros de HOY del conductor, con totales
+      responses:
+        "200":
+          description: Registros del día (hora de Lima)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TodayIncomesResponse" }
+    post:
+      summary: Registra manualmente pasajeros e ingreso recaudado
+      description: >
+        El bus y la fecha NO se envían: el servidor usa el bus asignado al
+        conductor y la fecha actual de Lima. Cualquier busCode o recordDate
+        enviado se ignora. No hay pasarela de pagos: es una anotación manual.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                passengers: { type: integer, minimum: 0, maximum: 1000 }
+                amount:
+                  {
+                    type: number,
+                    description: "Soles, máximo 2 decimales",
+                    minimum: 0,
+                  }
+                notes: { type: string, maxLength: 300 }
+      responses:
+        "201": { description: Registro creado }
+        "400":
+          {
+            description: "Datos inválidos (negativos, 3 decimales, todo en cero)",
+          }
+        "403": { description: El usuario no tiene rol driver }
+        "409": { description: El conductor no tiene bus asignado }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+
+  schemas:
+    Coordinate:
+      type: object
+      properties:
+        latitude: { type: number }
+        longitude: { type: number }
+
+    Route:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, example: "R-01 Centro" }
+        path:
+          type: array
+          items: { $ref: "#/components/schemas/Coordinate" }
+
+    EtaStop:
+      type: object
+      properties:
+        stopId: { type: string, format: uuid }
+        name: { type: string }
+        stopOrder: { type: integer }
+        distanceMeters: { type: number }
+        etaSeconds: { type: integer, nullable: true }
+        passed: { type: boolean }
+
+    EtaBus:
+      type: object
+      properties:
+        busId: { type: string }
+        position: { $ref: "#/components/schemas/Coordinate" }
+        speedKmh: { type: number }
+        updatedSecondsAgo: { type: integer }
+        stops:
+          type: array
+          items: { $ref: "#/components/schemas/EtaStop" }
+
+    EtaResponse:
+      type: object
+      properties:
+        routeId: { type: string, format: uuid }
+        buses:
+          type: array
+          items: { $ref: "#/components/schemas/EtaBus" }
+
+    MyBusResponse:
+      type: object
+      properties:
+        bus:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            busId: { type: string }
+            routeId: { type: string, format: uuid }
+            driverId: { type: string, format: uuid, nullable: true }
+            status: { type: string }
+        route:
+          type: object
+          nullable: true
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+
+    IncomeRecord:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        fleetId: { type: string, format: uuid }
+        busCode: { type: string }
+        driverId: { type: string, format: uuid }
+        recordDate: { type: string, format: date }
+        passengers: { type: integer }
+        amount: { type: number }
+        notes: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    TodayIncomesResponse:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        records:
+          type: array
+          items: { $ref: "#/components/schemas/IncomeRecord" }
+        totalPassengers: { type: integer }
+        totalAmount: { type: number }

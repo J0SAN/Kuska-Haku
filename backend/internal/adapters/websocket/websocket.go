@@ -3,64 +3,74 @@ package websocket
 import (
 	"log"
 	"net/http"
-	"sync"
+	"strings"
 
 	"github.com/gorilla/websocket"
+
+	"kuska-haku-backend/internal/ports"
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// Variables globales para mantener un registro de los celulares conectados
-var (
-	clients   = make(map[*websocket.Conn]bool)
-	clientsMu sync.Mutex
-)
+type Gateway struct {
+	store  ports.PositionStore
+	broker ports.PositionBroker
+	tokens ports.TokenService
+}
 
-// BroadcastMessage permite que otros paquetes (como Redis) envíen datos al celular
-func BroadcastMessage(msg []byte) {
-	clientsMu.Lock()
-	defer clientsMu.Unlock()
-	for conn := range clients {
-		err := conn.WriteMessage(websocket.TextMessage, msg)
-		if err != nil {
-			log.Printf("Error enviando a cliente, desconectando: %v", err)
-			conn.Close()
-			delete(clients, conn)
-		}
+func NewGateway(store ports.PositionStore, broker ports.PositionBroker, tokens ports.TokenService) *Gateway {
+	return &Gateway{store: store, broker: broker, tokens: tokens}
+}
+
+// ServeRoute expone GET /ws/routes/{routeId}?token=<JWT>
+func (g *Gateway) ServeRoute(w http.ResponseWriter, r *http.Request) {
+	routeID := strings.TrimPrefix(r.URL.Path, "/ws/routes/")
+	if routeID == "" || routeID == r.URL.Path {
+		routeID = r.URL.Query().Get("routeId")
 	}
-}
-
-func HandleWS(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Printf("Error estableciendo WebSocket: %v", err)
+	if routeID == "" {
+		http.Error(w, "routeId requerido en la ruta, ej. /ws/routes/ruta-01", http.StatusBadRequest)
 		return
 	}
 
-	// Registrar al nuevo celular en nuestro directorio
-	clientsMu.Lock()
-	clients[conn] = true
-	clientsMu.Unlock()
+	if _, err := g.tokens.Parse(r.URL.Query().Get("token")); err != nil {
+		http.Error(w, "token inválido o ausente", http.StatusUnauthorized)
+		return
+	}
 
-	log.Println("Nuevo cliente móvil conectado por WebSocket")
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("ws: error en upgrade para ruta %s: %v", routeID, err)
+		return
+	}
+	defer conn.Close()
 
-	defer func() {
-		clientsMu.Lock()
-		delete(clients, conn)
-		clientsMu.Unlock()
-		conn.Close()
-	}()
+	ctx := r.Context()
+	positions, unsubscribe, err := g.broker.Subscribe(ctx, routeID)
+	if err != nil {
+		log.Printf("ws: error suscribiendo a ruta %s: %v", routeID, err)
+		return
+	}
+	defer unsubscribe()
 
-	// Mantener la conexión abierta
-	for {
-		_, _, err := conn.ReadMessage()
-		if err != nil {
-			log.Println("Cliente desconectado")
-			break
+	log.Printf("ws: cliente conectado a ruta %s", routeID)
+
+	if busIDs, err := g.store.ListActiveBusIDs(ctx, routeID); err == nil {
+		for _, busID := range busIDs {
+			if pos, err := g.store.GetLastPosition(ctx, busID); err == nil && pos != nil {
+				if err := conn.WriteJSON(pos); err != nil {
+					return
+				}
+			}
+		}
+	}
+
+	for pos := range positions {
+		if err := conn.WriteJSON(pos); err != nil {
+			log.Printf("ws: cliente de ruta %s desconectado: %v", routeID, err)
+			return
 		}
 	}
 }

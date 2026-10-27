@@ -1,35 +1,76 @@
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 
-class ApiClient {
-  // Ajusta la IP según tu entorno de pruebas (emulador vs dispositivo físico)
-  static const String baseUrl = 'http://10.118.10.86:8080/api/v1/auth';
+import '../config.dart';
 
-  Future<bool> login(String email, String password) async {
-    try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email, 'password': password}),
+class AuthUser {
+  final String id;
+  final String email;
+  final String fullName;
+  final String role;
+
+  AuthUser({
+    required this.id,
+    required this.email,
+    required this.fullName,
+    required this.role,
+  });
+
+  factory AuthUser.fromJson(Map<String, dynamic> json) => AuthUser(
+        id: json['id'] as String,
+        email: json['email'] as String,
+        fullName: json['fullName'] as String,
+        role: json['role'] as String,
       );
+}
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('jwt_token', data['token']);
-        return true;
+class AuthResult {
+  final String token;
+  final AuthUser user;
+
+  AuthResult({required this.token, required this.user});
+}
+
+class AuthException implements Exception {
+  final String message;
+  AuthException(this.message);
+
+  @override
+  String toString() => message;
+}
+
+class AuthApiClient {
+  final String backendHost;
+
+  AuthApiClient({this.backendHost = AppConfig.backendHost});
+
+  Uri _uri(String path) => Uri.parse('http://$backendHost$path');
+
+  Future<AuthResult> login(String email, String password) async {
+    final response = await http.post(
+      _uri('/api/v1/auth/login'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'email': email, 'password': password}),
+    );
+
+    if (response.statusCode != 200) {
+      String errorMessage = 'Credenciales inválidas';
+      try {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        errorMessage =
+            (body['error'] ?? body['message'] ?? errorMessage) as String;
+      } catch (_) {
+        if (response.body.trim().isNotEmpty) {
+          errorMessage = response.body.trim();
+        }
       }
-      return false;
-    } catch (e) {
-      debugPrint('Error de conexión: $e');
-      return false;
+      throw AuthException(errorMessage);
     }
-  }
 
-  Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('jwt_token');
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return AuthResult(
+      token: body['token'] as String,
+      user: AuthUser.fromJson(body['user'] as Map<String, dynamic>),
+    );
   }
 }

@@ -1,38 +1,395 @@
 openapi: 3.0.3
 info:
-  title: Kuska Haku Admin API
-  version: 1.0.0
-  description: Endpoints REST para la administración y monitoreo de salud.
+  title: Kuska Haku — API REST del Panel Administrativo
+  version: 0.4.0-mvp
+  description: >
+    Contrato REST consumido por el panel web administrativo (React).
+    TODOS los endpoints bajo /api/v1/admin/ exigen un JWT válido con rol
+    "admin" (ver auth-api.openapi.yaml). Un usuario autenticado con rol
+    passenger o driver recibe 403.
+
+servers:
+  - url: http://localhost:8080
+    description: Backend local
+
+security:
+  - bearerAuth: []
+
 paths:
   /health:
     get:
-      summary: Verifica que el backend y Postgres estén conectados.
+      security: []
+      summary: Estado de salud del backend y sus dependencias
       responses:
         "200":
-          description: Todo está funcionando correctamente.
+          description: El servidor responde correctamente
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthResponse" }
+        "503":
+          description: Al menos una dependencia no responde
+
+  /api/v1/admin/routes:
+    get:
+      summary: Lista todas las rutas con su trazado
+      responses:
+        "200":
+          description: Listado de rutas
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HealthStatus"
+                type: array
+                items: { $ref: "#/components/schemas/Route" }
+        "403": { description: El usuario no tiene rol admin }
+    post:
+      summary: Crea una ruta con su trazado geográfico
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RouteRequest" }
+      responses:
+        "201":
+          description: Ruta creada
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Route" }
+        "400":
+          {
+            description: Datos inválidos (trazado con menos de 2 puntos o nombre vacío),
+          }
+        "409": { description: Ya existe una ruta con ese nombre o código }
+
+  /api/v1/admin/routes/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Obtiene una ruta por id
+      responses:
+        "200":
+          description: Ruta encontrada
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Route" }
+        "404": { description: Ruta no encontrada }
+    put:
+      summary: Actualiza una ruta y su trazado
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RouteRequest" }
+      responses:
+        "200":
+          description: Ruta actualizada
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Route" }
+        "400": { description: Datos inválidos }
+        "404": { description: Ruta no encontrada }
+    delete:
+      summary: Elimina una ruta
+      description: >
+        Falla con 409 si la ruta todavía tiene buses asignados. El backend
+        verifica la dependencia ANTES de intentar el borrado, para poder
+        devolver un mensaje entendible en vez de un error de constraint.
+      responses:
+        "204": { description: Ruta eliminada }
+        "409": { description: La ruta tiene buses asignados }
+        "404": { description: Ruta no encontrada }
+
+  /api/v1/admin/routes/{id}/stops:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Lista los paraderos de una ruta, ordenados por su campo stopOrder
+      responses:
+        "200":
+          description: Listado de paraderos
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Stop" }
+    post:
+      summary: Agrega un paradero a la ruta
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StopRequest" }
+      responses:
+        "201":
+          description: Paradero creado
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Stop" }
+        "400": { description: Datos inválidos }
+        "409": { description: Ya existe un paradero con ese orden en la ruta }
+
+  /api/v1/admin/stops/{id}:
+    delete:
+      summary: Elimina un paradero por id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204": { description: Paradero eliminado }
+        "404": { description: Paradero no encontrado }
+
+  /api/v1/admin/fleet:
+    get:
+      summary: Lista toda la flota
+      responses:
+        "200":
+          description: Listado de buses
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Fleet" }
+    post:
+      summary: Registra un bus y lo asigna a una ruta
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FleetRequest" }
+      responses:
+        "201":
+          description: Bus creado
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fleet" }
+        "400": { description: Datos inválidos }
+        "409":
+          {
+            description: Código de bus (busId) duplicado,
+            o ruta/conductor inexistente,
+          }
+
+  /api/v1/admin/fleet/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      summary: Obtiene un bus por id
+      responses:
+        "200":
+          description: Bus encontrado
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fleet" }
+        "404": { description: Bus no encontrado }
+    put:
+      summary: Actualiza un bus (incluyendo asignación de driverId)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FleetRequest" }
+      responses:
+        "200":
+          description: Bus actualizado
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Fleet" }
+        "404": { description: Bus no encontrado }
+    delete:
+      summary: Elimina un bus
+      responses:
+        "204": { description: Bus eliminado }
+        "404": { description: Bus no encontrado }
+
+  /api/v1/admin/dashboard:
+    get:
+      summary: KPIs, serie diaria y ranking de buses
+      description: >
+        Las agregaciones las calcula Postgres. La serie incluye los días sin
+        registros en cero. El ranking agrupa por el código de bus (busCode)
+        guardado como snapshot en cada registro, así que los buses eliminados
+        siguen figurando en el historial.
+      parameters:
+        - name: days
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 90, default: 7 }
+      responses:
+        "200":
+          description: Estadísticas
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Dashboard" }
+        "400": { description: days fuera de rango }
+
+  /api/v1/admin/suggestions:
+    get:
+      summary: Buzón de sugerencias, más recientes primero
+      parameters:
+        - name: only
+          in: query
+          schema: { type: string, enum: [new] }
+      responses:
+        "200":
+          description: Hasta 200 sugerencias
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Suggestion" }
+
+  /api/v1/admin/suggestions/{id}/read:
+    put:
+      summary: Marca una sugerencia como leída
+      parameters:
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+      responses:
+        "204": { description: Actualizada }
+        "404": { description: No existe }
+
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
   schemas:
-    HealthStatus:
+    Coordinate:
+      type: object
+      required: [latitude, longitude]
+      properties:
+        latitude: { type: number, format: double, example: -7.1611 }
+        longitude: { type: number, format: double, example: -78.5127 }
+
+    RouteRequest:
+      type: object
+      required: [name, path]
+      properties:
+        name: { type: string, example: "R-01 Centro - Baños del Inca" }
+        path:
+          type: array
+          minItems: 2
+          description: >
+            Secuencia de puntos del recorrido. Se persiste en PostGIS como
+            geometry(LineString, 4326).
+          items: { $ref: "#/components/schemas/Coordinate" }
+
+    Route:
+      allOf:
+        - $ref: "#/components/schemas/RouteRequest"
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+
+    StopRequest:
+      type: object
+      required: [name, location, stopOrder]
+      properties:
+        name: { type: string, example: "Plaza de Armas" }
+        location: { $ref: "#/components/schemas/Coordinate" }
+        stopOrder:
+          type: integer
+          minimum: 1
+          description: Posición del paradero dentro del recorrido, base para el cálculo de ETA.
+
+    Stop:
+      allOf:
+        - $ref: "#/components/schemas/StopRequest"
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            routeId: { type: string, format: uuid }
+            createdAt: { type: string, format: date-time }
+
+    FleetRequest:
+      type: object
+      required: [busId, routeId]
+      properties:
+        busId:
+          type: string
+          example: "bus-01"
+          description: >
+            Mismo identificador que el simulador o la app del Conductor publica
+            como bus_id por MQTT — ver gps-position.asyncapi.yaml.
+        routeId: { type: string, format: uuid }
+        driverId: { type: string, format: uuid, nullable: true }
+        status: { type: string, default: active, example: active }
+
+    Fleet:
+      allOf:
+        - $ref: "#/components/schemas/FleetRequest"
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
+
+    HealthCheck:
       type: object
       properties:
-        status:
-          type: string
-          example: ok
-        timestamp:
-          type: string
-          format: date-time
+        name: { type: string, example: postgres }
+        status: { type: string, enum: [ok, error] }
+        error: { type: string, nullable: true }
+
+    HealthResponse:
+      type: object
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        timestamp: { type: string, format: date-time }
         checks:
+          type: array
+          items: { $ref: "#/components/schemas/HealthCheck" }
+
+    Suggestion:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string }
+        userName: { type: string }
+        message: { type: string }
+        status: { type: string, enum: [new, read] }
+        createdAt: { type: string, format: date-time }
+
+    Dashboard:
+      type: object
+      properties:
+        date: { type: string, format: date }
+        days: { type: integer }
+        activeBuses: { type: integer }
+        activeRoutes: { type: integer }
+        passengersToday: { type: integer }
+        incomeToday: { type: number, description: Soles }
+        newSuggestions: { type: integer }
+        series:
           type: array
           items:
             type: object
             properties:
-              name:
-                type: string
-                example: postgres
-              status:
-                type: string
-                example: ok
+              date: { type: string, format: date }
+              passengers: { type: integer }
+              amount: { type: number }
+        topBuses:
+          type: array
+          items:
+            type: object
+            properties:
+              busCode: { type: string }
+              passengers: { type: integer }
+              amount: { type: number }

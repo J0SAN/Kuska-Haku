@@ -3,27 +3,60 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 
-	_ "github.com/lib/pq" // driver de Postgres, registrado por side-effect
+	"github.com/lib/pq"
 )
 
+// Errores estandarizados de la capa de persistencia
+var (
+	ErrRecordNotFound = errors.New("registro no encontrado")
+	ErrDuplicateKey   = errors.New("registro duplicado (violación de unicidad)")
+	ErrRouteHasBuses  = errors.New("la ruta tiene buses asignados")
+)
+
+// isUniqueViolation detecta el código 23505 (unique_violation) de PostgreSQL.
+func isUniqueViolation(err error) bool {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr.Code == "23505"
+	}
+	return err != nil && strings.Contains(err.Error(), "duplicate key value violates unique constraint")
+}
+
+// isForeignKeyViolation detecta el código 23503 (foreign_key_violation) de PostgreSQL.
+func isForeignKeyViolation(err error) bool {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr.Code == "23503"
+	}
+	return err != nil && strings.Contains(err.Error(), "violates foreign key constraint")
+}
+
+// isInvalidUUID detecta cuando se consulta con un string que no es un UUID válido,
+// permitiendo tratarlo como un 404 (ErrRecordNotFound) en vez de un 500.
+func isInvalidUUID(err error) bool {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr.Code == "22P02"
+	}
+	return err != nil && strings.Contains(err.Error(), "invalid input syntax for type uuid")
+}
+
 // DB envuelve la conexión y es el punto único desde el que se construirán
-// los repositorios concretos en fases posteriores.
+// los repositorios concretos.
 type DB struct {
 	conn *sql.DB
 }
 
-// New abre la conexión contra Postgres usando una cadena DSN estándar,
-// ej: postgres://user:pass@localhost:5432/kuska_haku?sslmode=disable
 func New(dsn string) (*DB, error) {
 	conn, err := sql.Open("postgres", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: error abriendo conexión: %w", err)
 	}
 
-	// Pool conservador para el MVP de una sola ruta; se ajustará con datos
-	// reales de carga una vez en staging.
 	conn.SetMaxOpenConns(10)
 	conn.SetMaxIdleConns(5)
 
@@ -40,13 +73,10 @@ func (d *DB) Name() string {
 	return "postgres"
 }
 
-// Conn expone la conexión subyacente para quien necesite correr
-// migraciones o construir repositorios concretos (ver user_repository.go).
 func (d *DB) Conn() *sql.DB {
 	return d.conn
 }
 
-// Close libera la conexión. Se llama desde main() al apagar el servicio.
 func (d *DB) Close() error {
 	return d.conn.Close()
 }

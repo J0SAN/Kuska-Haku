@@ -1,0 +1,135 @@
+openapi: 3.0.3
+info:
+  title: Kuska Haku — API de Autenticación
+  version: 0.2.0-mvp
+  description: >
+    Contrato compartido por los TRES clientes (app Pasajero, app Conductor,
+    panel Web Admin) para registro, login y verificación de sesión. Un solo
+    modelo de usuario con campo `role` — lo que cambia entre clientes es qué
+    hacen después de autenticarse, no cómo se autentican.
+
+servers:
+  - url: http://localhost:8080
+    description: Backend local (Fase 2 a 4)
+
+paths:
+  /api/v1/auth/register:
+    post:
+      summary: Crea una cuenta nueva y devuelve un token de sesión
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Cuenta creada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Datos inválidos (email mal formado, password corta, rol inválido, etc.)
+        "409":
+          description: Ya existe una cuenta con ese email
+
+  /api/v1/auth/login:
+    post:
+      summary: Autentica con email y contraseña, devuelve un token de sesión
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login exitoso
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Email o contraseña incorrectos (mensaje genérico, no revela cuál de los dos)
+
+  /api/v1/auth/me:
+    get:
+      summary: Devuelve el usuario autenticado según el token enviado
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Usuario autenticado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Token ausente, inválido o expirado
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password, fullName]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 6
+        fullName:
+          type: string
+        role:
+          type: string
+          enum: [passenger, driver, admin]
+          default: passenger
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        fullName:
+          type: string
+        role:
+          type: string
+          enum: [passenger, driver, admin]
+
+    AuthResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        token:
+          type: string
+          description: JWT firmado HS256, válido por 24 horas
+        user:
+          $ref: "#/components/schemas/User"
+
+# ---------------------------------------------------------------------------
+# Nota de arquitectura: los endpoints de gestión de flota/rutas/dashboard
+# están en docs/contracts/admin-api.openapi.yaml y usan este mismo
+# bearerAuth + RequireRole(admin) del lado del backend.
+# ---------------------------------------------------------------------------

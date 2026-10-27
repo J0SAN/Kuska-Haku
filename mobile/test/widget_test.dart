@@ -2,12 +2,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kuska_haku_pasajero/main.dart';
 
 void main() {
-  testWidgets('Renderiza la pantalla inicial correctamente',
+  testWidgets('Renderiza la pantalla inicial de login correctamente',
       (WidgetTester tester) async {
-    // Pasamos el parámetro requerido initialRoute que definimos en main.dart
-    await tester.pumpWidget(const KuskaHakuApp(initialRoute: '/login'));
+    await tester.pumpWidget(const KuskaHakuApp());
 
-    // Verificamos que el widget principal se monte sin errores
     expect(find.byType(KuskaHakuApp), findsOneWidget);
+    expect(find.text('Kuska Haku'), findsOneWidget);
+    expect(find.text('Ingresar'), findsOneWidget);
   });
 }

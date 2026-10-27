@@ -11,6 +11,8 @@ type Position struct {
 	RouteID   string    `json:"route_id"`
 	Latitude  float64   `json:"latitude"`
 	Longitude float64   `json:"longitude"`
+	SpeedKmh  float64   `json:"speed_kmh,omitempty"`
+	Heading   float64   `json:"heading,omitempty"`
 	Timestamp time.Time `json:"timestamp"`
 }
 
@@ -27,6 +29,9 @@ func (p *Position) Validate() error {
 	}
 	if p.Longitude < -180 || p.Longitude > 180 {
 		return errors.New("longitud inválida: debe estar entre -180 y 180")
+	}
+	if p.SpeedKmh < 0 {
+		return errors.New("speed_kmh no puede ser negativo")
 	}
 	return nil
 }

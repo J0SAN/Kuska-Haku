@@ -4,18 +4,38 @@ import (
 	"encoding/json"
 	"net/http"
 
-	// Ajusta el nombre de tu módulo si es distinto
 	"kuska-haku-backend/internal/domain"
 	"kuska-haku-backend/internal/ports"
 )
 
-type AuthController struct {
-	userRepo ports.UserRepository
-	authSvc  ports.AuthService
+type UserResponse struct {
+	ID       string `json:"id"`
+	Email    string `json:"email"`
+	FullName string `json:"fullName"`
+	Role     string `json:"role"`
 }
 
-func NewAuthController(userRepo ports.UserRepository, authSvc ports.AuthService) *AuthController {
-	return &AuthController{userRepo: userRepo, authSvc: authSvc}
+func toUserResponse(u *domain.User) UserResponse {
+	return UserResponse{
+		ID:       u.ID,
+		Email:    u.Email,
+		FullName: u.FullName,
+		Role:     u.Role,
+	}
+}
+
+type AuthController struct {
+	userRepo ports.UserRepository
+	hasher   ports.PasswordHasher
+	tokens   ports.TokenService
+}
+
+func NewAuthController(userRepo ports.UserRepository, hasher ports.PasswordHasher, tokens ports.TokenService) *AuthController {
+	return &AuthController{
+		userRepo: userRepo,
+		hasher:   hasher,
+		tokens:   tokens,
+	}
 }
 
 type RegisterRequest struct {
@@ -32,7 +52,12 @@ func (c *AuthController) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hashedPassword, err := c.authSvc.HashPassword(req.Password)
+	if len(req.Password) < 6 {
+		http.Error(w, "La contraseña debe tener al menos 6 caracteres", http.StatusBadRequest)
+		return
+	}
+
+	hashedPassword, err := c.hasher.Hash(req.Password)
 	if err != nil {
 		http.Error(w, "Error interno al procesar seguridad", http.StatusInternalServerError)
 		return
@@ -49,9 +74,19 @@ func (c *AuthController) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	token, err := c.tokens.Generate(*user)
+	if err != nil {
+		http.Error(w, "Error al generar token de sesión", http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Usuario creado exitosamente"})
+	json.NewEncoder(w).Encode(map[string]any{
+		"message": "Usuario creado exitosamente",
+		"token":   token,
+		"user":    toUserResponse(user),
+	})
 }
 
 type LoginRequest struct {
@@ -67,22 +102,42 @@ func (c *AuthController) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, err := c.userRepo.GetByEmail(r.Context(), req.Email)
-	if err != nil {
+	if err != nil || user == nil {
 		http.Error(w, "Credenciales inválidas", http.StatusUnauthorized)
 		return
 	}
 
-	if !c.authSvc.CheckPasswordHash(req.Password, user.PasswordHash) {
+	if err := c.hasher.Compare(user.PasswordHash, req.Password); err != nil {
 		http.Error(w, "Credenciales inválidas", http.StatusUnauthorized)
 		return
 	}
 
-	token, err := c.authSvc.GenerateToken(user)
+	token, err := c.tokens.Generate(*user)
 	if err != nil {
 		http.Error(w, "Error al generar token de sesión", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"token": token})
+	json.NewEncoder(w).Encode(map[string]any{
+		"token": token,
+		"user":  toUserResponse(user),
+	})
+}
+
+func (c *AuthController) Me(w http.ResponseWriter, r *http.Request) {
+	claims, ok := ClaimsFromContext(r.Context())
+	if !ok {
+		http.Error(w, "No autenticado", http.StatusUnauthorized)
+		return
+	}
+
+	user, err := c.userRepo.GetByID(r.Context(), claims.UserID)
+	if err != nil || user == nil {
+		http.Error(w, "Usuario no encontrado", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(toUserResponse(user))
 }

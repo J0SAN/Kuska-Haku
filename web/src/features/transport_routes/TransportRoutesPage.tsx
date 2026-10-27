@@ -5,66 +5,52 @@ import {
   Polyline,
   Marker,
 } from "@react-google-maps/api";
-import apiClient from "../../api/client";
+import apiClient, { getErrorMessage, type RouteData } from "../../api/client";
+import { ConfirmDialog } from "../ConfirmDialog";
 
-// Coordenadas base (Centro de Cajamarca, Perú)
-const CAJAMARCA_CENTER = { lat: -7.162, lng: -78.5 };
-const MAP_CONTAINER_STYLE = {
-  width: "100%",
-  height: "420px",
-  borderRadius: "8px",
-};
+const CAJAMARCA_CENTER = { lat: -7.1611, lng: -78.5127 };
 
-// Interfaces basadas en nuestro Dominio de Go
-interface Coordinate {
-  latitude: number;
-  longitude: number;
-}
-
-interface RouteData {
-  id: string;
-  name: string;
-  path: Coordinate[];
-}
-
-export default function RutasPage() {
-  // 1. Inicializar el SDK de Google Maps
+export default function TransportRoutesPage() {
   const { isLoaded } = useJsApiLoader({
     id: "google-map-script",
-    // Vite inyecta las variables de entorno con import.meta.env
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "",
   });
 
-  // 2. Estados locales
   const [routes, setRoutes] = useState<RouteData[]>([]);
   const [newPath, setNewPath] = useState<google.maps.LatLngLiteral[]>([]);
   const [routeName, setRouteName] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [routeToDelete, setRouteToDelete] = useState<RouteData | null>(null);
 
-  // 3. Cargar rutas al montar el componente (Patrón seguro de React)
   useEffect(() => {
     let isMounted = true;
 
     const loadRoutes = async () => {
       try {
-        const response = await apiClient.get("/admin/routes");
+        const response = await apiClient.get<RouteData[]>("/admin/routes");
         if (isMounted) {
-          setRoutes(response.data);
+          setRoutes(response.data || []);
         }
-      } catch (error) {
-        console.error("Error al cargar rutas desde la base de datos:", error);
+      } catch (err) {
+        if (isMounted) {
+          setError(getErrorMessage(err, "Error cargando rutas"));
+        }
       }
     };
 
-    loadRoutes();
+    void loadRoutes();
 
-    // Función de limpieza: si el componente se desmonta, cancelamos la actualización de estado
     return () => {
       isMounted = false;
     };
   }, []);
 
-  // 4. Capturar clics en el mapa para dibujar
+  const refreshRoutes = async () => {
+    const response = await apiClient.get<RouteData[]>("/admin/routes");
+    setRoutes(response.data || []);
+  };
+
   const handleMapClick = useCallback((e: google.maps.MapMouseEvent) => {
     if (e.latLng) {
       setNewPath((current) => [
@@ -74,14 +60,16 @@ export default function RutasPage() {
     }
   }, []);
 
-  // 5. Guardar la nueva ruta en PostgreSQL/PostGIS
   const handleSaveRoute = async () => {
-    if (newPath.length < 2) {
-      alert("Debes marcar al menos 2 puntos en el mapa para trazar una ruta.");
+    setError(null);
+    if (!routeName.trim()) {
+      setError("El nombre de la ruta es obligatorio.");
       return;
     }
-    if (!routeName.trim()) {
-      alert("Por favor, ingresa un nombre para la ruta.");
+    if (newPath.length < 2) {
+      setError(
+        "El trazado debe tener al menos 2 puntos. Haz clic en el mapa para dibujarlo.",
+      );
       return;
     }
 
@@ -92,158 +80,153 @@ export default function RutasPage() {
         longitude: p.lng,
       }));
 
-      // Guardar en la base de datos
       await apiClient.post("/admin/routes", {
-        name: routeName,
+        name: routeName.trim(),
         path: payloadPath,
       });
 
-      setNewPath([]);
       setRouteName("");
-
-      // Recargar las rutas directamente desde la base de datos para obtener el UUID generado
-      const response = await apiClient.get("/admin/routes");
-      setRoutes(response.data);
-    } catch (error) {
-      console.error(error);
-      alert("Error al guardar la ruta. Revisa la consola.");
+      setNewPath([]);
+      await refreshRoutes();
+    } catch (err) {
+      setError(getErrorMessage(err, "Error guardando la ruta"));
     } finally {
       setIsSaving(false);
     }
   };
 
-  if (!isLoaded) return <div style={{ padding: "2rem" }}>Cargando Mapa</div>;
+  const handleConfirmDelete = async () => {
+    if (!routeToDelete) return;
+    setError(null);
+    try {
+      await apiClient.delete(`/admin/routes/${routeToDelete.id}`);
+      await refreshRoutes();
+    } catch (err) {
+      setError(getErrorMessage(err, "Error eliminando la ruta"));
+    } finally {
+      setRouteToDelete(null);
+    }
+  };
 
   return (
-    <div
-      style={{
-        maxWidth: "1200px",
-        margin: "0 auto",
-        padding: "20px",
-        fontFamily: "sans-serif",
-      }}
-    >
-      <h2 style={{ color: "#FFFFFF" }}>Gestión de Rutas y Trazado</h2>
+    <section>
+      <h2>Trazado de rutas</h2>
+      <p className="hint">
+        Haz clic sobre el mapa para ir marcando el recorrido. Se necesitan al
+        menos 2 puntos.
+      </p>
 
-      {/* Panel de Controles */}
-      <div
-        style={{
-          marginBottom: "20px",
-          padding: "15px",
-          background: "#f3f4f6",
-          borderRadius: "8px",
-          border: "1px solid #e5e7eb",
-        }}
-      >
+      <div className="form-row">
         <input
           type="text"
-          placeholder="Nombre de la ruta (ej. Ruta A)"
+          placeholder="Nombre o código de la ruta (ej. R-01 Centro)"
           value={routeName}
           onChange={(e) => setRouteName(e.target.value)}
-          style={{
-            padding: "10px",
-            marginRight: "10px",
-            width: "250px",
-            borderRadius: "4px",
-            border: "1px solid #d1d5db",
-          }}
         />
         <button
+          type="button"
+          className="primary"
           onClick={handleSaveRoute}
-          disabled={isSaving || newPath.length < 2}
-          style={{
-            padding: "10px 20px",
-            background: isSaving || newPath.length < 2 ? "#9ca3af" : "#2563eb",
-            color: "white",
-            border: "none",
-            borderRadius: "4px",
-            cursor: isSaving || newPath.length < 2 ? "not-allowed" : "pointer",
-            fontWeight: "bold",
-          }}
+          disabled={isSaving}
         >
-          {isSaving ? "Guardando..." : "Guardar Trazado"}
+          {isSaving ? "Guardando..." : "Guardar ruta"}
         </button>
-
-        {newPath.length > 0 && (
-          <button
-            onClick={() => setNewPath([])}
-            style={{
-              padding: "10px 20px",
-              marginLeft: "10px",
-              background: "#ef4444",
-              color: "white",
-              border: "none",
-              borderRadius: "4px",
-              cursor: "pointer",
-            }}
-          >
-            Limpiar Puntos
-          </button>
-        )}
-
-        <p style={{ margin: "10px 0 0 0", fontSize: "14px", color: "#4b5563" }}>
-          * Instrucciones: Haz clic en el mapa para marcar los vértices de la
-          ruta.
-        </p>
-      </div>
-
-      {/* Visor de Mapas */}
-      <div style={{ border: "2px solid #e5e7eb", borderRadius: "8px" }}>
-        <GoogleMap
-          mapContainerStyle={MAP_CONTAINER_STYLE}
-          center={CAJAMARCA_CENTER}
-          zoom={14}
-          onClick={handleMapClick}
-          options={{
-            streetViewControl: false,
-            mapTypeControl: false,
-          }}
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => setNewPath([])}
         >
-          {/* 1. Dibujar Rutas Históricas (ya guardadas en base de datos) */}
-          {routes.map((route) => (
-            <Polyline
-              key={route.id}
-              path={route.path.map((p) => ({
-                lat: p.latitude,
-                lng: p.longitude,
-              }))}
-              options={{
-                strokeColor: "#9ca3af",
-                strokeOpacity: 0.8,
-                strokeWeight: 4,
-              }}
-            />
-          ))}
-
-          {/* 2. Dibujar la ruta que el usuario está trazando en este momento */}
-          {newPath.length > 0 && (
-            <Polyline
-              path={newPath}
-              options={{
-                strokeColor: "#2563eb",
-                strokeOpacity: 1,
-                strokeWeight: 5,
-              }}
-            />
-          )}
-
-          {/* Puntos (Marcadores) del nuevo trazado */}
-          {newPath.map((point, index) => (
-            <Marker
-              key={index}
-              position={point}
-              icon={{
-                path: window.google.maps.SymbolPath.CIRCLE,
-                scale: 5,
-                fillColor: "#2563eb",
-                fillOpacity: 1,
-                strokeWeight: 2,
-                strokeColor: "#ffffff",
-              }}
-            />
-          ))}
-        </GoogleMap>
+          Limpiar trazado
+        </button>
       </div>
-    </div>
+
+      <p className="hint">Puntos marcados: {newPath.length}</p>
+      {error && <p className="error">{error}</p>}
+
+      <div className="map-container">
+        {isLoaded ? (
+          <GoogleMap
+            mapContainerStyle={{ width: "100%", height: "420px" }}
+            center={CAJAMARCA_CENTER}
+            zoom={14}
+            onClick={handleMapClick}
+          >
+            {newPath.map((point, index) => (
+              <Marker key={index} position={point} label={String(index + 1)} />
+            ))}
+            {newPath.length >= 2 && (
+              <Polyline
+                path={newPath}
+                options={{ strokeColor: "#2E7D32", strokeWeight: 4 }}
+              />
+            )}
+            {routes.map((route) => (
+              <Polyline
+                key={route.id}
+                path={(route.path || []).map((p) => ({
+                  lat: p.latitude,
+                  lng: p.longitude,
+                }))}
+                options={{
+                  strokeColor: "#81C784",
+                  strokeWeight: 3,
+                  strokeOpacity: 0.7,
+                }}
+              />
+            ))}
+          </GoogleMap>
+        ) : (
+          <p className="hint">
+            Cargando mapa... (revisa VITE_GOOGLE_MAPS_API_KEY en .env.local)
+          </p>
+        )}
+      </div>
+
+      <h3>Rutas registradas</h3>
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Nombre / Código</th>
+            <th>Puntos</th>
+            <th>Estado</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {routes.length === 0 && (
+            <tr>
+              <td colSpan={4} className="empty">
+                Todavía no hay rutas registradas.
+              </td>
+            </tr>
+          )}
+          {routes.map((r) => (
+            <tr key={r.id}>
+              <td>{r.name}</td>
+              <td>{r.path?.length ?? 0}</td>
+              <td>Activa</td>
+              <td>
+                <button
+                  type="button"
+                  className="danger-link"
+                  onClick={() => setRouteToDelete(r)}
+                >
+                  Eliminar
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {routeToDelete && (
+        <ConfirmDialog
+          title="Eliminar ruta"
+          message={`¿Seguro que deseas eliminar la ruta "${routeToDelete.name}"? Esta acción no se puede deshacer.`}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setRouteToDelete(null)}
+        />
+      )}
+    </section>
   );
 }

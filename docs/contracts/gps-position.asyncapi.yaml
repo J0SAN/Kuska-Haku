@@ -1,47 +1,108 @@
-asyncapi: 2.6.0
+asyncapi: 3.0.0
 info:
-  title: Kuska Haku GPS Position API
-  version: 1.0.0
-  description: Contrato para la ingesta (MQTT) y distribución (WebSocket) de coordenadas GPS.
+  title: Kuska Haku — Contrato de Posición GPS
+  version: 0.2.0-mvp
+  description: >
+    Define el formato exacto del mensaje de posición GPS que viaja por dos
+    tramos del sistema: (1) del simulador o la app del Conductor al backend
+    vía MQTT, y (2) del backend a la app del Pasajero vía WebSocket. Es el
+    contrato que conecta las tres plataformas — cualquier cambio aquí debe
+    coordinarse antes de tocar código de cliente.
+
+servers:
+  mqttBroker:
+    host: localhost:1883
+    protocol: mqtt
+    description: Broker Mosquitto local (Fase 0-4). En staging/producción será un host gestionado.
+
 channels:
-  gps/positions:
-    publish:
-      summary: El simulador publica las coordenadas del bus aquí.
-      message:
+  busPosition:
+    address: "gps/positions"
+    description: >
+      Topic MQTT donde cada unidad o simulador publica su posición GPS en
+      tiempo real cada 3-5 segundos.
+    messages:
+      gpsPosition:
         $ref: "#/components/messages/GpsPosition"
-    subscribe:
-      summary: La app móvil recibe las posiciones actualizadas desde aquí.
-      message:
-        $ref: "#/components/messages/GpsPosition"
+
+operations:
+  publishPosition:
+    action: send
+    channel:
+      $ref: "#/channels/busPosition"
+    summary: El simulador o la app del Conductor publica su posición cada 3-5 segundos.
+  receivePosition:
+    action: receive
+    channel:
+      $ref: "#/channels/busPosition"
+    summary: >
+      El backend consume el mensaje MQTT, actualiza la última posición en
+      Redis (TTL 2 min), y lo republica por canal de ruta a los pasajeros
+      suscritos vía WebSocket.
+
 components:
   messages:
     GpsPosition:
       name: GpsPosition
-      title: Posición GPS
+      title: Posición GPS de un bus
+      contentType: application/json
       payload:
-        type: object
-        required:
-          - bus_id
-          - route_id
-          - latitude
-          - longitude
-          - timestamp
-        properties:
-          bus_id:
-            type: string
-            description: Identificador único del bus.
-          route_id:
-            type: string
-            description: Identificador de la ruta.
-          latitude:
-            type: number
-            format: float
-            description: Latitud actual.
-          longitude:
-            type: number
-            format: float
-            description: Longitud actual.
-          timestamp:
-            type: string
-            format: date-time
-            description: Momento exacto de la captura.
+        $ref: "#/components/schemas/GpsPositionPayload"
+
+  schemas:
+    GpsPositionPayload:
+      type: object
+      required:
+        - bus_id
+        - route_id
+        - latitude
+        - longitude
+        - timestamp
+      properties:
+        bus_id:
+          type: string
+          description: Identificador único del bus/unidad, ej. "bus-01"
+        route_id:
+          type: string
+          description: Identificador o código de la ruta, ej. "ruta-01"
+        latitude:
+          type: number
+          format: double
+          description: Latitud en grados decimales (WGS84)
+          example: -7.1611
+        longitude:
+          type: number
+          format: double
+          description: Longitud en grados decimales (WGS84)
+          example: -78.5127
+        speed_kmh:
+          type: number
+          format: float
+          description: Velocidad instantánea en km/h, utilizada para el cálculo de ETA
+          example: 25.0
+        heading:
+          type: number
+          format: float
+          description: Rumbo/orientación en grados (0-360, 0 = norte)
+          example: 90.0
+        timestamp:
+          type: string
+          format: date-time
+          description: Momento de captura del punto GPS en el dispositivo (ISO 8601, UTC)
+
+# Nota de diseño: se mantiene el payload deliberadamente plano y liviano
+# (sin anidamiento) porque viaja por MQTT desde una red móvil potencialmente
+# inestable, cada pocos segundos, durante turnos de varias horas.
+
+# ---------------------------------------------------------------------------
+# Fase 4 — Reglas del lado WebSocket (backend -> pasajero)
+#
+#  1. El gateway ws://HOST/ws/routes/{routeId}?token=<JWT> EXIGE un token
+#     válido. Sin token o con uno inválido responde 401 antes del upgrade.
+#
+#  2. Convención de identificadores: en este contrato, bus_id es el código
+#     físico/operativo del bus (fleet.bus_id, ej. "bus-01"). El backend usa
+#     fleet.bus_id para ubicar la última posición en Redis al calcular el ETA,
+#     así que el código de bus registrado en el panel administrativo debe
+#     coincidir exactamente con el bus_id que publica el conductor o simulador.
+# ---------------------------------------------------------------------------

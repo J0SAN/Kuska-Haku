@@ -64,12 +64,20 @@ class StopEta {
 
 class BusEta {
   final String busId;
+  final bool offRoute;
   final List<StopEta> stops;
 
-  BusEta({required this.busId, required this.stops});
+  BusEta({
+    required this.busId,
+    required this.offRoute,
+    required this.stops,
+  });
 
   factory BusEta.fromJson(Map<String, dynamic> json) => BusEta(
         busId: json['busId'] as String,
+        offRoute: (json['offRoute'] as bool?) ??
+            (json['fueraDeRuta'] as bool?) ??
+            false,
         stops: ((json['stops'] as List<dynamic>?) ?? [])
             .map((s) => StopEta.fromJson(s as Map<String, dynamic>))
             .toList(),

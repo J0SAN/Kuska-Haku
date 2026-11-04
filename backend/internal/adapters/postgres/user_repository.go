@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"kuska-haku-backend/internal/domain"
 )
@@ -60,4 +61,29 @@ func (r *UserRepository) GetByID(ctx context.Context, id string) (*domain.User, 
 		return nil, err
 	}
 	return user, nil
+}
+
+// ListByRole lista los usuarios de un rol específico sin incluir password_hash.
+func (r *UserRepository) ListByRole(ctx context.Context, role domain.Role) ([]domain.User, error) {
+	const query = `
+		SELECT id, email, full_name, role, created_at
+		FROM kuska.users
+		WHERE role = $1
+		ORDER BY full_name ASC
+	`
+	rows, err := r.db.QueryContext(ctx, query, string(role))
+	if err != nil {
+		return nil, fmt.Errorf("postgres: error listando usuarios por rol: %w", err)
+	}
+	defer rows.Close()
+
+	users := []domain.User{}
+	for rows.Next() {
+		var u domain.User
+		if err := rows.Scan(&u.ID, &u.Email, &u.FullName, &u.Role, &u.CreatedAt); err != nil {
+			return nil, fmt.Errorf("postgres: error escaneando usuario: %w", err)
+		}
+		users = append(users, u)
+	}
+	return users, rows.Err()
 }

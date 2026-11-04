@@ -12,9 +12,11 @@ import (
 
 // Errores estandarizados de la capa de persistencia
 var (
-	ErrRecordNotFound = errors.New("registro no encontrado")
-	ErrDuplicateKey   = errors.New("registro duplicado (violación de unicidad)")
-	ErrRouteHasBuses  = errors.New("la ruta tiene buses asignados")
+	ErrRecordNotFound        = errors.New("registro no encontrado")
+	ErrDuplicateKey          = errors.New("registro duplicado (violación de unicidad)")
+	ErrDriverAlreadyAssigned = errors.New("ese conductor ya tiene otro bus activo asignado")
+	ErrForeignKeyViolation   = errors.New("la ruta o el conductor indicados no existen")
+	ErrRouteHasBuses         = errors.New("la ruta tiene buses asignados")
 )
 
 // isUniqueViolation detecta el código 23505 (unique_violation) de PostgreSQL.
@@ -24,6 +26,15 @@ func isUniqueViolation(err error) bool {
 		return pqErr.Code == "23505"
 	}
 	return err != nil && strings.Contains(err.Error(), "duplicate key value violates unique constraint")
+}
+
+// isConstraintViolation detecta si una violación 23505 corresponde a un constraint específico.
+func isConstraintViolation(err error, constraint string) bool {
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return pqErr.Code == "23505" && pqErr.Constraint == constraint
+	}
+	return err != nil && strings.Contains(err.Error(), constraint)
 }
 
 // isForeignKeyViolation detecta el código 23503 (foreign_key_violation) de PostgreSQL.

@@ -245,7 +245,7 @@ func (c *AdminController) CreateFleet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := c.fleetRepo.Create(r.Context(), &fleet); err != nil {
-		writeError(w, http.StatusConflict, "Error al registrar el vehículo. Verifique que el Bus ID no esté duplicado.")
+		writeFleetWriteError(w, err, "Error al registrar el vehículo")
 		return
 	}
 	writeJSON(w, http.StatusCreated, fleet)
@@ -299,7 +299,7 @@ func (c *AdminController) FleetItem(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusNotFound, "Unidad no encontrada")
 				return
 			}
-			writeError(w, http.StatusInternalServerError, "Error al actualizar la unidad")
+			writeFleetWriteError(w, err, "Error al actualizar la unidad")
 			return
 		}
 		writeJSON(w, http.StatusOK, fleet)
@@ -317,5 +317,20 @@ func (c *AdminController) FleetItem(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "Método no permitido")
+	}
+}
+
+// writeFleetWriteError traduce errores de restricción de integridad en PostgreSQL
+// a respuestas HTTP 409 Conflict con mensajes legibles para el administrador.
+func writeFleetWriteError(w http.ResponseWriter, err error, fallback string) {
+	switch {
+	case errors.Is(err, postgres.ErrDriverAlreadyAssigned):
+		writeError(w, http.StatusConflict, "Ese conductor ya tiene otro bus activo asignado")
+	case errors.Is(err, postgres.ErrDuplicateKey):
+		writeError(w, http.StatusConflict, "Ya existe un vehículo registrado con ese Bus ID")
+	case errors.Is(err, postgres.ErrForeignKeyViolation):
+		writeError(w, http.StatusConflict, "La ruta o el conductor indicados no existen")
+	default:
+		writeError(w, http.StatusInternalServerError, fallback)
 	}
 }

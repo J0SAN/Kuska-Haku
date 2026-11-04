@@ -2,14 +2,32 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"kuska-haku-backend/internal/domain"
 )
 
-// DistancesToStops implementa ports.RouteProgressRepository midiendo la distancia
-// real sobre el trazado (LineString) desde la coordenada del bus hasta cada paradero.
-func (r *routeRepository) DistancesToStops(ctx context.Context, routeID string, from domain.Coordinate) ([]domain.StopDistance, error) {
+// Progress implementa ports.RouteProgressRepository midiendo el desvío del bus respecto
+// al trazado de la ruta y la distancia real sobre las calles hasta cada paradero.
+func (r *routeRepository) Progress(ctx context.Context, routeID string, from domain.Coordinate) (*domain.BusProgress, error) {
+	out := &domain.BusProgress{Stops: []domain.StopDistance{}}
+
+	// 1. Medir desvío en metros reales (ST_MakePoint recibe longitud, latitud)
+	err := r.db.QueryRowContext(ctx, `
+		SELECT ST_Distance(path::geography, ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography)
+		FROM kuska.routes
+		WHERE id = $1
+	`, routeID, from.Longitude, from.Latitude).Scan(&out.OffRouteMeters)
+	if err != nil {
+		if isInvalidUUID(err) || errors.Is(err, sql.ErrNoRows) {
+			return out, nil
+		}
+		return nil, fmt.Errorf("postgres: error midiendo desvío de ruta: %w", err)
+	}
+
+	// 2. Medir distancia sobre el trazado a cada paradero
 	const q = `
 		WITH route_geom AS (
 			SELECT path AS g FROM kuska.routes WHERE id = $1
@@ -32,17 +50,12 @@ func (r *routeRepository) DistancesToStops(ctx context.Context, routeID string, 
 		WHERE s.route_id = $1
 		ORDER BY s.stop_order ASC
 	`
-	// ST_MakePoint recibe (longitud, latitud)
 	rows, err := r.db.QueryContext(ctx, q, routeID, from.Longitude, from.Latitude)
 	if err != nil {
-		if isInvalidUUID(err) {
-			return []domain.StopDistance{}, nil
-		}
 		return nil, fmt.Errorf("postgres: error calculando distancias a paraderos: %w", err)
 	}
 	defer rows.Close()
 
-	stops := []domain.StopDistance{}
 	for rows.Next() {
 		var sd domain.StopDistance
 		var fp, fb, dist float64
@@ -50,7 +63,7 @@ func (r *routeRepository) DistancesToStops(ctx context.Context, routeID string, 
 			return nil, fmt.Errorf("postgres: error leyendo distancia a paradero: %w", err)
 		}
 		sd.Passed, sd.DistanceMeters = domain.ClassifyStop(fp, fb, dist)
-		stops = append(stops, sd)
+		out.Stops = append(out.Stops, sd)
 	}
-	return stops, rows.Err()
+	return out, rows.Err()
 }

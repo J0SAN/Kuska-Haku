@@ -42,10 +42,11 @@ func (s stubPositionStore) GetLastPosition(context.Context, string) (*domain.Pos
 
 type stubRouteProgress struct {
 	stops []domain.StopDistance
+	off   float64
 }
 
-func (s stubRouteProgress) DistancesToStops(context.Context, string, domain.Coordinate) ([]domain.StopDistance, error) {
-	return s.stops, nil
+func (s stubRouteProgress) Progress(context.Context, string, domain.Coordinate) (*domain.BusProgress, error) {
+	return &domain.BusProgress{Stops: s.stops, OffRouteMeters: s.off}, nil
 }
 
 func activeRoute() *domain.Route {
@@ -125,5 +126,40 @@ func TestETA_NonExistentRouteReturns404(t *testing.T) {
 	h.RouteItem(rec, httptest.NewRequest("GET", "/api/v1/routes/r1/eta", nil))
 	if rec.Code != 404 {
 		t.Fatalf("esperaba 404, obtuve %d", rec.Code)
+	}
+}
+
+func TestETA_OffRouteBusDoesNotCalculateETA(t *testing.T) {
+	pos := &domain.Position{
+		BusID:     "bus-01",
+		RouteID:   "r1",
+		Latitude:  -7.16,
+		Longitude: -78.51,
+		SpeedKmh:  30,
+		Timestamp: time.Now(),
+	}
+	h := NewPassengerController(
+		stubRoutes{route: activeRoute()},
+		stubFleet{byRoute: []domain.Fleet{{BusID: "bus-01", Status: "active"}}},
+		stubPositionStore{pos: pos},
+		stubRouteProgress{
+			off:   450,
+			stops: []domain.StopDistance{{StopID: "s1", Name: "Uno", StopOrder: 1, DistanceMeters: 800}},
+		},
+	)
+	rec := httptest.NewRecorder()
+	h.RouteItem(rec, httptest.NewRequest("GET", "/api/v1/routes/r1/eta", nil))
+
+	var resp etaResponse
+	_ = json.NewDecoder(rec.Body).Decode(&resp)
+	if len(resp.Buses) != 1 {
+		t.Fatalf("el bus debe aparecer aunque esté fuera de ruta: %+v", resp)
+	}
+	b := resp.Buses[0]
+	if !b.OffRoute || b.OffRouteMeters != 450 {
+		t.Errorf("esperaba offRoute con desvío 450, obtuve %+v", b)
+	}
+	if b.Stops[0].ETASeconds != nil {
+		t.Error("un bus fuera de ruta no debe tener ETA calculado")
 	}
 }

@@ -43,3 +43,12 @@ func TestClassifyStop(t *testing.T) {
 		t.Fatalf("dentro de tolerancia: passed=%v d=%v", passed, d)
 	}
 }
+
+func TestIsOffRoute(t *testing.T) {
+	if IsOffRoute(40) {
+		t.Error("40 m del trazado es ruido GPS normal, no desvío")
+	}
+	if !IsOffRoute(250) {
+		t.Error("250 m del trazado debería ser desvío")
+	}
+}

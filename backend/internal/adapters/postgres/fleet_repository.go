@@ -31,6 +31,19 @@ func scanFleetRow(scanner interface{ Scan(dest ...any) error }) (domain.Fleet, e
 	return f, nil
 }
 
+func mapFleetWriteError(err error) error {
+	if isConstraintViolation(err, "uq_fleet_active_driver") {
+		return ErrDriverAlreadyAssigned
+	}
+	if isUniqueViolation(err) {
+		return ErrDuplicateKey
+	}
+	if isForeignKeyViolation(err) {
+		return ErrForeignKeyViolation
+	}
+	return err
+}
+
 func (r *fleetRepository) Create(ctx context.Context, fleet *domain.Fleet) error {
 	if err := fleet.Validate(); err != nil {
 		return err
@@ -46,8 +59,8 @@ func (r *fleetRepository) Create(ctx context.Context, fleet *domain.Fleet) error
 	err := r.db.QueryRowContext(ctx, query, fleet.BusID, fleet.RouteID, fleet.DriverID, fleet.Status).
 		Scan(&fleet.ID, &fleet.CreatedAt, &fleet.UpdatedAt)
 	if err != nil {
-		if isUniqueViolation(err) {
-			return ErrDuplicateKey
+		if mapped := mapFleetWriteError(err); !errors.Is(mapped, err) {
+			return mapped
 		}
 		return fmt.Errorf("error insertando bus en bd: %v", err)
 	}
@@ -112,8 +125,8 @@ func (r *fleetRepository) Update(ctx context.Context, fleet *domain.Fleet) error
 		if errors.Is(err, sql.ErrNoRows) || isInvalidUUID(err) {
 			return ErrRecordNotFound
 		}
-		if isUniqueViolation(err) {
-			return ErrDuplicateKey
+		if mapped := mapFleetWriteError(err); !errors.Is(mapped, err) {
+			return mapped
 		}
 		return fmt.Errorf("error actualizando bus: %v", err)
 	}
@@ -167,6 +180,7 @@ func (r *fleetRepository) GetByDriverID(ctx context.Context, driverID string) (*
 		SELECT id, bus_id, route_id, driver_id, status, created_at, updated_at
 		FROM kuska.fleet
 		WHERE driver_id = $1 AND status = 'active'
+		ORDER BY created_at ASC
 		LIMIT 1
 	`
 	f, err := scanFleetRow(r.db.QueryRowContext(ctx, query, driverID))

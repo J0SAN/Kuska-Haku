@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Kuska Haku — API REST del Panel Administrativo
-  version: 0.4.0-mvp
+  version: 0.5.0-mvp
   description: >
     Contrato REST consumido por el panel web administrativo (React).
     TODOS los endpoints bajo /api/v1/admin/ exigen un JWT válido con rol
@@ -172,8 +172,7 @@ paths:
         "400": { description: Datos inválidos }
         "409":
           {
-            description: Código de bus (busId) duplicado,
-            o ruta/conductor inexistente,
+            description: "Código de bus (busId) duplicado, ruta/conductor inexistente, o el conductor ya tiene OTRO bus activo asignado (un conductor, un bus activo)",
           }
 
   /api/v1/admin/fleet/{id}:
@@ -205,11 +204,40 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Fleet" }
         "404": { description: Bus no encontrado }
+        "409":
+          {
+            description: "Código de bus duplicado, ruta/conductor inexistente, o el conductor ya tiene otro bus activo asignado",
+          }
     delete:
       summary: Elimina un bus
       responses:
         "204": { description: Bus eliminado }
         "404": { description: Bus no encontrado }
+
+  /api/v1/admin/users:
+    get:
+      summary: Lista usuarios de un rol (para asignar conductores a buses)
+      parameters:
+        - name: role
+          in: query
+          required: true
+          schema: { type: string, enum: [passenger, driver, admin] }
+      responses:
+        "200":
+          description: Usuarios del rol solicitado, sin ningún dato de contraseña
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string, format: uuid }
+                    email: { type: string, format: email }
+                    fullName: { type: string }
+                    role: { type: string, enum: [passenger, driver, admin] }
+                    createdAt: { type: string, format: date-time }
+        "400": { description: Rol inválido }
 
   /api/v1/admin/dashboard:
     get:
@@ -326,8 +354,8 @@ components:
           type: string
           example: "bus-01"
           description: >
-            Mismo identificador que el simulador o la app del Conductor publica
-            como bus_id por MQTT — ver gps-position.asyncapi.yaml.
+            Identificador operativo del bus que coincide con el bus_id emitido
+            en tiempo real — ver gps-position.asyncapi.yaml.
         routeId: { type: string, format: uuid }
         driverId: { type: string, format: uuid, nullable: true }
         status: { type: string, default: active, example: active }

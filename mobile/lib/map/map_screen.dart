@@ -327,6 +327,21 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   }
 
   Widget _buildEtaRow(BusEta bus) {
+    if (bus.offRoute) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          children: [
+            const Icon(Icons.alt_route, size: 18, color: Colors.orange),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text('${bus.busId}: fuera de ruta, ETA no disponible'),
+            ),
+          ],
+        ),
+      );
+    }
+
     final next = bus.nextStop;
     final text = next == null
         ? '${bus.busId}: recorrido completado'

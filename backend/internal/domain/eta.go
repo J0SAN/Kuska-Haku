@@ -13,7 +13,22 @@ const (
 	// stopToleranceMeters: margen en metros para absorber el ruido del GPS cuando
 	// el bus se encuentra detenido justo sobre el paradero.
 	stopToleranceMeters = 15.0
+
+	// offRouteThresholdMeters: más lejos que esta distancia del trazado, el bus se
+	// considera fuera de ruta (desvío, calle cerrada) y no se proyecta para ETA.
+	offRouteThresholdMeters = 100.0
 )
+
+// BusProgress representa el avance de un bus sobre el trazado de su ruta y su desviación.
+type BusProgress struct {
+	Stops          []StopDistance `json:"stops"`
+	OffRouteMeters float64        `json:"offRouteMeters"`
+}
+
+// IsOffRoute indica si la distancia en metros respecto al trazado supera el umbral de desvío (100 m).
+func IsOffRoute(meters float64) bool {
+	return meters > offRouteThresholdMeters
+}
 
 // StopDistance representa la distancia medida a lo largo del trazado (LineString)
 // desde la posición actual de un bus hasta un paradero específico.

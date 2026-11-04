@@ -3,12 +3,14 @@ import apiClient, {
   getErrorMessage,
   type FleetData,
   type RouteData,
+  type UserData,
 } from "../../api/client";
 import { ConfirmDialog } from "../ConfirmDialog";
 
 export default function FleetPage() {
   const [routes, setRoutes] = useState<RouteData[]>([]);
   const [fleet, setFleet] = useState<FleetData[]>([]);
+  const [drivers, setDrivers] = useState<UserData[]>([]);
   const [busId, setBusId] = useState("");
   const [routeId, setRouteId] = useState("");
   const [driverId, setDriverId] = useState("");
@@ -21,14 +23,16 @@ export default function FleetPage() {
 
     const loadInitialData = async () => {
       try {
-        const [routesRes, fleetRes] = await Promise.all([
+        const [routesRes, fleetRes, driversRes] = await Promise.all([
           apiClient.get<RouteData[]>("/admin/routes"),
           apiClient.get<FleetData[]>("/admin/fleet"),
+          apiClient.get<UserData[]>("/admin/users?role=driver"),
         ]);
         if (isMounted) {
           const loadedRoutes = routesRes.data || [];
           setRoutes(loadedRoutes);
           setFleet(fleetRes.data || []);
+          setDrivers(driversRes.data || []);
           if (loadedRoutes.length > 0) {
             setRouteId((current) => current || loadedRoutes[0].id);
           }
@@ -85,6 +89,22 @@ export default function FleetPage() {
     }
   };
 
+  const handleAssignDriver = async (bus: FleetData, newDriverId: string) => {
+    setError(null);
+    try {
+      await apiClient.put(`/admin/fleet/${bus.id}`, {
+        busId: bus.busId,
+        routeId: bus.routeId,
+        driverId: newDriverId ? newDriverId : null,
+        status: bus.status || "active",
+      });
+    } catch (err) {
+      setError(getErrorMessage(err, "Error asignando el conductor"));
+    }
+    // Se recarga siempre: si falló por 409 Conflict, el selector vuelve al valor real en BD.
+    await refreshFleet();
+  };
+
   const handleConfirmDelete = async () => {
     if (!busToDelete) return;
     setError(null);
@@ -101,13 +121,29 @@ export default function FleetPage() {
   const getRouteName = (id: string) =>
     routes.find((r) => r.id === id)?.name ?? "—";
 
+  const getDriverLabel = (d: UserData) => d.fullName || d.full_name || d.email;
+
+  const renderDriverSelector = (
+    value: string,
+    onChange: (id: string) => void,
+  ) => (
+    <select value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">Sin conductor</option>
+      {drivers.map((d) => (
+        <option key={d.id} value={d.id}>
+          {getDriverLabel(d)}
+        </option>
+      ))}
+    </select>
+  );
+
   return (
     <section>
       <h2>Gestión de flota</h2>
 
       <div className="form-row">
         <input
-          placeholder="Código MQTT (ej. bus-01)"
+          placeholder="Código (ej. bus-01)"
           value={busId}
           onChange={(e) => setBusId(e.target.value)}
         />
@@ -121,11 +157,7 @@ export default function FleetPage() {
             </option>
           ))}
         </select>
-        <input
-          placeholder="UUID Conductor (opcional)"
-          value={driverId}
-          onChange={(e) => setDriverId(e.target.value)}
-        />
+        {renderDriverSelector(driverId, setDriverId)}
         <button
           type="button"
           className="primary"
@@ -143,7 +175,7 @@ export default function FleetPage() {
           <tr>
             <th>Código (Bus ID)</th>
             <th>Ruta</th>
-            <th>Conductor (UUID)</th>
+            <th>Conductor</th>
             <th>Estado</th>
             <th></th>
           </tr>
@@ -160,7 +192,12 @@ export default function FleetPage() {
             <tr key={b.id}>
               <td>{b.busId}</td>
               <td>{getRouteName(b.routeId)}</td>
-              <td>{b.driverId ?? "Sin asignar"}</td>
+              <td>
+                {renderDriverSelector(
+                  b.driverId ?? "",
+                  (id) => void handleAssignDriver(b, id),
+                )}
+              </td>
               <td>
                 <span
                   className={

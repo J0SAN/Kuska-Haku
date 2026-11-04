@@ -60,6 +60,8 @@ type etaBus struct {
 	Position          domain.Coordinate `json:"position"`
 	SpeedKmh          float64           `json:"speedKmh"`
 	UpdatedSecondsAgo int               `json:"updatedSecondsAgo"`
+	OffRoute          bool              `json:"offRoute"`
+	OffRouteMeters    float64           `json:"offRouteMeters"`
 	Stops             []etaStop         `json:"stops"`
 }
 
@@ -109,7 +111,7 @@ func (h *PassengerController) eta(w http.ResponseWriter, r *http.Request, routeI
 			continue
 		}
 
-		stops, err := h.progress.DistancesToStops(ctx, routeID, domain.Coordinate{
+		prog, err := h.progress.Progress(ctx, routeID, domain.Coordinate{
 			Latitude:  pos.Latitude,
 			Longitude: pos.Longitude,
 		})
@@ -118,6 +120,7 @@ func (h *PassengerController) eta(w http.ResponseWriter, r *http.Request, routeI
 			return
 		}
 
+		offRoute := domain.IsOffRoute(prog.OffRouteMeters)
 		ageSeconds := int(now.Sub(pos.Timestamp).Seconds())
 		if ageSeconds < 0 {
 			ageSeconds = 0
@@ -128,10 +131,12 @@ func (h *PassengerController) eta(w http.ResponseWriter, r *http.Request, routeI
 			Position:          domain.Coordinate{Latitude: pos.Latitude, Longitude: pos.Longitude},
 			SpeedKmh:          pos.SpeedKmh,
 			UpdatedSecondsAgo: ageSeconds,
-			Stops:             make([]etaStop, 0, len(stops)),
+			OffRoute:          offRoute,
+			OffRouteMeters:    math.Round(prog.OffRouteMeters),
+			Stops:             make([]etaStop, 0, len(prog.Stops)),
 		}
 
-		for _, s := range stops {
+		for _, s := range prog.Stops {
 			es := etaStop{
 				StopID:         s.StopID,
 				Name:           s.Name,
@@ -139,7 +144,7 @@ func (h *PassengerController) eta(w http.ResponseWriter, r *http.Request, routeI
 				DistanceMeters: math.Round(s.DistanceMeters),
 				Passed:         s.Passed,
 			}
-			if !s.Passed {
+			if !s.Passed && !offRoute {
 				secs := int(math.Round(domain.EstimateETA(s.DistanceMeters, pos.SpeedKmh).Seconds()))
 				es.ETASeconds = &secs
 			}

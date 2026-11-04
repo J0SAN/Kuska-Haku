@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Kuska Haku — API para las apps móviles (Pasajero y Conductor)
-  version: 0.1.0-mvp
+  version: 0.2.0-mvp
   description: >
     Endpoints consumidos por las apps móviles. Todos exigen un JWT válido
     (ver auth-api.openapi.yaml). Los endpoints /api/v1/driver/* exigen
@@ -35,7 +35,8 @@ paths:
         aparece. Si el bus reporta menos de 8 km/h se usa una velocidad de
         referencia de 20 km/h, para que un bus detenido no genere un ETA
         infinito. Un paradero que el bus ya pasó trae passed=true y
-        etaSeconds=null.
+        etaSeconds=null. Si el bus se aleja más de 100 m del trazado, se marca
+        offRoute=true y no se calcula ETA.
       parameters:
         - {
             name: id,
@@ -72,8 +73,8 @@ paths:
     get:
       summary: Bus activo asignado al conductor autenticado y su ruta
       description: >
-        La app del Conductor lo usa para saber con qué bus_id (= bus.busId)
-        y route_id publicar sus posiciones por MQTT.
+        La app del Conductor lo consulta al iniciar sesión para mostrar qué
+        unidad y ruta tiene asignadas antes de iniciar su turno.
       responses:
         "200":
           description: Bus y ruta
@@ -81,6 +82,92 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/MyBusResponse" }
         "404": { description: El administrador todavía no le asignó un bus }
+
+  /api/v1/driver/positions:
+    post:
+      summary: Envía un lote de puntos GPS del conductor (máx. 100)
+      description: >
+        Canal autenticado por el que el teléfono del conductor reporta su
+        posición. El cuerpo NO lleva busId ni routeId: si se envían, se
+        ignoran. El servidor resuelve el bus asignado al conductor a partir
+        del JWT, impidiendo suplantar la identidad de otra unidad.
+
+        Los puntos inválidos (sin timestamp, en el futuro, con más de 24 h de
+        antigüedad, velocidad > 150 km/h, rumbo fuera de 0..360 o coordenadas
+        fuera de rango) se descartan individualmente sin abortar el lote.
+        Todos los puntos válidos se guardan en kuska.gps_positions de forma
+        idempotente (ON CONFLICT DO NOTHING sobre bus_id + ts).
+
+        Solo el punto más reciente de cada lote se difunde en vivo por
+        Redis/WebSocket si tiene menos de 60 s de antigüedad y es posterior a
+        la última posición conocida, evitando que lotes atrasados hagan
+        retroceder el bus en el mapa.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [positions]
+              properties:
+                positions:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    type: object
+                    required: [latitude, longitude, timestamp]
+                    properties:
+                      latitude: { type: number, minimum: -90, maximum: 90 }
+                      longitude: { type: number, minimum: -180, maximum: 180 }
+                      speedKmh: { type: number, minimum: 0, maximum: 150 }
+                      heading: { type: number, minimum: 0, maximum: 360 }
+                      timestamp:
+                        {
+                          type: string,
+                          format: date-time,
+                          description: "UTC, RFC 3339",
+                        }
+      responses:
+        "200":
+          description: Lote procesado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received: { type: integer }
+                  saved:
+                    {
+                      type: integer,
+                      description: "Filas nuevas insertadas en el historial",
+                    }
+                  duplicates:
+                    {
+                      type: integer,
+                      description: "Puntos que ya existían (reintento idempotente)",
+                    }
+                  discarded:
+                    {
+                      type: integer,
+                      description: "Puntos inválidos descartados",
+                    }
+                  firstDiscardReason: { type: string }
+                  live:
+                    {
+                      type: boolean,
+                      description: "Indica si el punto más reciente se difundió en vivo",
+                    }
+        "400":
+          {
+            description: "Lote vacío, de más de 100 puntos, o cuerpo JSON inválido",
+          }
+        "403": { description: El usuario no tiene rol driver }
+        "409": { description: El conductor no tiene un bus activo asignado }
+        "503":
+          {
+            description: "Fallo interno temporal; la app móvil debe conservar el lote y reintentar",
+          }
 
   /api/v1/driver/incomes:
     get:
@@ -158,6 +245,12 @@ components:
         position: { $ref: "#/components/schemas/Coordinate" }
         speedKmh: { type: number }
         updatedSecondsAgo: { type: integer }
+        offRoute:
+          type: boolean
+          description: >
+            true si el bus está a más de 100 m del trazado (desvío o GPS
+            errático). En ese caso etaSeconds viene null en todos los paraderos.
+        offRouteMeters: { type: number }
         stops:
           type: array
           items: { $ref: "#/components/schemas/EtaStop" }

@@ -16,15 +16,11 @@ import (
 	"kuska-haku-backend/internal/adapters/websocket"
 	"kuska-haku-backend/internal/domain"
 	"kuska-haku-backend/internal/migrations"
+	"kuska-haku-backend/internal/usecases"
 )
 
 func main() {
-	// === 1. INFRAESTRUCTURA FASE 1 (Redis + MQTT) ===
-	redisClient := redis.NewRedisPublisher("localhost:6379")
-	mqttAdapter := mqtt.NewMqttAdapter("tcp://localhost:1883", redisClient)
-	go mqttAdapter.Start()
-
-	// === 2. INFRAESTRUCTURA FASE 2, 3 & 4 (PostgreSQL + PostGIS) ===
+	// === 1. INFRAESTRUCTURA POSTGRESQL + POSTGIS ===
 	dbConnStr := os.Getenv("DATABASE_URL")
 	if dbConnStr == "" {
 		dbConnStr = "postgres://postgres:postgres@localhost:5432/kuskahaku?sslmode=disable"
@@ -52,6 +48,14 @@ func main() {
 	incomeRepo := postgres.NewIncomeRepository(db)
 	suggestionRepo := postgres.NewSuggestionRepository(db)
 	statsRepo := postgres.NewStatsRepository(db)
+	historyRepo := postgres.NewPositionHistoryRepository(db)
+
+	// === 2. INFRAESTRUCTURA TIEMPO REAL E INGESTA UNIFICADA (Redis + Caso de Uso + MQTT) ===
+	redisClient := redis.NewRedisPublisher("localhost:6379")
+	ingestor := usecases.NewPositionIngestor(redisClient, redisClient, historyRepo)
+
+	mqttAdapter := mqtt.NewMqttAdapter("tcp://localhost:1883", ingestor)
+	go mqttAdapter.Start()
 
 	// --- Inicialización de Servicios de Seguridad ---
 	jwtSecret := os.Getenv("JWT_SECRET")
@@ -69,7 +73,7 @@ func main() {
 	authMiddleware := httpAdapter.NewAuthMiddleware(tokenSvc)
 	adminController := httpAdapter.NewAdminController(routeRepo, fleetRepo, stopRepo)
 	passengerController := httpAdapter.NewPassengerController(routeRepo, fleetRepo, redisClient, routeRepo)
-	driverController := httpAdapter.NewDriverController(fleetRepo, routeRepo, incomeRepo)
+	driverController := httpAdapter.NewDriverController(fleetRepo, routeRepo, incomeRepo, ingestor)
 	suggestionController := httpAdapter.NewSuggestionController(suggestionRepo)
 
 	// === 3. ENRUTADOR (MUX) ===
@@ -85,7 +89,7 @@ func main() {
 	mux.HandleFunc("POST /api/v1/auth/login", authController.Login)
 	mux.HandleFunc("GET /api/v1/auth/me", authMiddleware.RequireAuth(authController.Me))
 
-	// Panel Administrativo: Rutas, Paraderos y Flota (Fase 3 & 4 - Solo Admin)
+	// Panel Administrativo: Rutas, Paraderos, Flota y Usuarios (Fase 3, 4 & 5 - Solo Admin)
 	mux.HandleFunc("POST /api/v1/admin/routes", authMiddleware.RequireRole(adminController.CreateRoute, domain.RoleAdmin))
 	mux.HandleFunc("GET /api/v1/admin/routes", authMiddleware.RequireRole(adminController.GetRoutes, domain.RoleAdmin))
 	mux.HandleFunc("/api/v1/admin/routes/", authMiddleware.RequireRole(adminController.RouteItem, domain.RoleAdmin))
@@ -94,14 +98,16 @@ func main() {
 	mux.HandleFunc("POST /api/v1/admin/fleet", authMiddleware.RequireRole(adminController.CreateFleet, domain.RoleAdmin))
 	mux.HandleFunc("GET /api/v1/admin/fleet", authMiddleware.RequireRole(adminController.GetFleet, domain.RoleAdmin))
 	mux.HandleFunc("/api/v1/admin/fleet/", authMiddleware.RequireRole(adminController.FleetItem, domain.RoleAdmin))
+	mux.HandleFunc("GET /api/v1/admin/users", authMiddleware.RequireRole(httpAdapter.UsersHandler(userRepo), domain.RoleAdmin))
 
-	// Pasajeros y consulta de ETA (Fase 4 - Cualquier usuario autenticado)
+	// Pasajeros y consulta de ETA (Fase 4 & 5 - Cualquier usuario autenticado)
 	mux.HandleFunc("GET /api/v1/routes", authMiddleware.RequireAuth(passengerController.ListRoutes))
 	mux.HandleFunc("/api/v1/routes/", authMiddleware.RequireAuth(passengerController.RouteItem))
 
-	// Conductor: Mi Bus e Ingresos del turno (Fase 4 - Solo Driver)
+	// Conductor: Mi Bus, Ingresos e Ingesta de Posiciones GPS (Fase 4 & 5 - Solo Driver)
 	mux.HandleFunc("GET /api/v1/driver/my-bus", authMiddleware.RequireRole(driverController.MyBus, domain.RoleDriver))
 	mux.HandleFunc("/api/v1/driver/incomes", authMiddleware.RequireRole(driverController.Incomes, domain.RoleDriver))
+	mux.HandleFunc("POST /api/v1/driver/positions", authMiddleware.RequireRole(driverController.Positions, domain.RoleDriver))
 
 	// Buzón de Sugerencias (Fase 4)
 	mux.HandleFunc("POST /api/v1/suggestions", authMiddleware.RequireRole(suggestionController.Create, domain.RolePassenger, domain.RoleDriver))

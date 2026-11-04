@@ -1,26 +1,26 @@
 asyncapi: 3.0.0
 info:
   title: Kuska Haku — Contrato de Posición GPS
-  version: 0.2.0-mvp
+  version: 0.3.0-mvp
   description: >
-    Define el formato exacto del mensaje de posición GPS que viaja por dos
-    tramos del sistema: (1) del simulador o la app del Conductor al backend
-    vía MQTT, y (2) del backend a la app del Pasajero vía WebSocket. Es el
-    contrato que conecta las tres plataformas — cualquier cambio aquí debe
-    coordinarse antes de tocar código de cliente.
+    Define el formato exacto del mensaje de posición GPS que viaja por el
+    sistema: (1) del simulador o rastreadores de hardware al backend vía MQTT,
+    y (2) del backend a la app del Pasajero vía WebSocket tras pasar por el
+    caso de uso unificado PositionIngestor.
 
 servers:
   mqttBroker:
     host: localhost:1883
     protocol: mqtt
-    description: Broker Mosquitto local (Fase 0-4). En staging/producción será un host gestionado.
+    description: Broker Mosquitto local restringido a 127.0.0.1 (Fase 5).
 
 channels:
   busPosition:
     address: "gps/positions"
     description: >
-      Topic MQTT donde cada unidad o simulador publica su posición GPS en
-      tiempo real cada 3-5 segundos.
+      Topic MQTT donde el simulador o unidades IoT publican su posición GPS en
+      tiempo real cada 3-5 segundos. El backend también escucha el patrón
+      kuska/+/bus/+/position.
     messages:
       gpsPosition:
         $ref: "#/components/messages/GpsPosition"
@@ -30,15 +30,16 @@ operations:
     action: send
     channel:
       $ref: "#/channels/busPosition"
-    summary: El simulador o la app del Conductor publica su posición cada 3-5 segundos.
+    summary: El simulador publica su posición cada 3-5 segundos.
   receivePosition:
     action: receive
     channel:
       $ref: "#/channels/busPosition"
     summary: >
-      El backend consume el mensaje MQTT, actualiza la última posición en
-      Redis (TTL 2 min), y lo republica por canal de ruta a los pasajeros
-      suscritos vía WebSocket.
+      El backend consume el mensaje MQTT, lo procesa a través de
+      PositionIngestor (historial en PostgreSQL + última posición en Redis con
+      TTL de 2 min) y lo difunde por canal de ruta a los pasajeros suscritos
+      vía WebSocket.
 
 components:
   messages:
@@ -90,10 +91,6 @@ components:
           format: date-time
           description: Momento de captura del punto GPS en el dispositivo (ISO 8601, UTC)
 
-# Nota de diseño: se mantiene el payload deliberadamente plano y liviano
-# (sin anidamiento) porque viaja por MQTT desde una red móvil potencialmente
-# inestable, cada pocos segundos, durante turnos de varias horas.
-
 # ---------------------------------------------------------------------------
 # Fase 4 — Reglas del lado WebSocket (backend -> pasajero)
 #
@@ -105,4 +102,20 @@ components:
 #     fleet.bus_id para ubicar la última posición en Redis al calcular el ETA,
 #     así que el código de bus registrado en el panel administrativo debe
 #     coincidir exactamente con el bus_id que publica el conductor o simulador.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Fase 5 — Quién publica por MQTT y quién lo hace por HTTP
+#
+#  El CELULAR del conductor NO publica por MQTT. Envía sus puntos por HTTP
+#  autenticado a POST /api/v1/driver/positions (ver client-api.openapi.yaml).
+#  Motivo: el broker de desarrollo acepta conexiones locales sin credenciales
+#  por dispositivo, y exponerlo a internet permitiría falsificar posiciones en
+#  nombre de cualquier bus. Por HTTP, el backend deduce el bus directamente del
+#  JWT del conductor autenticado.
+#
+#  Este canal MQTT queda como entrada INTERNA para cmd/simulator y futuros
+#  rastreadores GPS dedicados. Ambos caminos desembocan en el mismo caso de
+#  uso (PositionIngestor): mismas validaciones, mismo historial en
+#  kuska.gps_positions y misma difusión en vivo hacia Redis/WebSocket.
 # ---------------------------------------------------------------------------

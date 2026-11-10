@@ -51,10 +51,19 @@ func main() {
 	historyRepo := postgres.NewPositionHistoryRepository(db)
 
 	// === 2. INFRAESTRUCTURA TIEMPO REAL E INGESTA UNIFICADA (Redis + Caso de Uso + MQTT) ===
-	redisClient := redis.NewRedisPublisher("localhost:6379")
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "127.0.0.1:6379"
+	}
+	mqttBroker := os.Getenv("MQTT_BROKER_URL")
+	if mqttBroker == "" {
+		mqttBroker = "tcp://127.0.0.1:1883"
+	}
+
+	redisClient := redis.NewRedisPublisher(redisAddr)
 	ingestor := usecases.NewPositionIngestor(redisClient, redisClient, historyRepo)
 
-	mqttAdapter := mqtt.NewMqttAdapter("tcp://localhost:1883", ingestor)
+	mqttAdapter := mqtt.NewMqttAdapter(mqttBroker, ingestor)
 	go mqttAdapter.Start()
 
 	// --- Inicialización de Servicios de Seguridad ---

@@ -22,23 +22,25 @@ import (
 
 func main() {
 	// === 1. INFRAESTRUCTURA POSTGRESQL + POSTGIS ===
-	dbConnStr := os.Getenv("DATABASE_URL")
+	dbConnStr := cleanConnectionURL(os.Getenv("DATABASE_URL"))
 	if dbConnStr == "" {
 		dbConnStr = "postgres://postgres:postgres@localhost:5432/kuskahaku?sslmode=disable"
 	}
 
+	// Los errores de conexión pueden incluir la URL completa: se ocultan las
+	// contraseñas antes de escribirlos en el log.
 	db, err := sql.Open("postgres", dbConnStr)
 	if err != nil {
-		log.Fatalf("Error al conectar a la base de datos: %v", err)
+		log.Fatalf("Error al conectar a la base de datos: %s", redactSecrets(err.Error()))
 	}
 	defer db.Close()
 
 	if err := db.Ping(); err != nil {
-		log.Fatalf("La base de datos no responde: %v", err)
+		log.Fatalf("La base de datos no responde: %s", redactSecrets(err.Error()))
 	}
 
 	if err := migrations.Run(db); err != nil {
-		log.Fatalf("Fallo crítico al inicializar la base de datos: %v", err)
+		log.Fatalf("Fallo crítico al inicializar la base de datos: %s", redactSecrets(err.Error()))
 	}
 
 	// --- Inicialización de Repositorios ---
@@ -54,10 +56,10 @@ func main() {
 	// === 2. INFRAESTRUCTURA TIEMPO REAL E INGESTA UNIFICADA (Redis + Caso de Uso + MQTT) ===
 	// REDIS_URL (redis://…, la usa Render Key Value) tiene prioridad sobre REDIS_ADDR (host:puerto).
 	var redisClient *redis.RedisPublisher
-	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
+	if redisURL := cleanConnectionURL(os.Getenv("REDIS_URL")); redisURL != "" {
 		redisClient, err = redis.NewRedisPublisherFromURL(redisURL)
 		if err != nil {
-			log.Fatalf("Configuración de Redis inválida: %v", err)
+			log.Fatalf("Configuración de Redis inválida: %s", redactSecrets(err.Error()))
 		}
 	} else {
 		redisAddr := os.Getenv("REDIS_ADDR")

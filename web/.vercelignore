@@ -1,0 +1,4 @@
+# Las variables se configuran en el proyecto de Vercel, nunca se suben archivos .env
+.env*
+node_modules
+dist

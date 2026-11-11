@@ -96,7 +96,8 @@ class DriverApi {
         'Content-Type': 'application/json',
       };
 
-  Uri _uri(String path) => Uri.parse('http://${AppConfig.backendHost}$path');
+  Uri _uri(String path) =>
+      Uri.parse('${AppConfig.httpScheme}://${AppConfig.backendHost}$path');
 
   String _extractError(http.Response res) {
     try {

@@ -82,3 +82,46 @@ func TestRateLimiter_IPsDistintasNoSeAfectan(t *testing.T) {
 		}
 	}
 }
+
+func TestClientIP_SinCabeceraConfiguradaIgnoraLasCabeceras(t *testing.T) {
+	req := requestFrom("10.0.0.1")
+	req.Header.Set("CF-Connecting-IP", "203.0.113.9")
+	req.Header.Set("X-Forwarded-For", "198.51.100.7")
+	if got := clientIP(req, ""); got != "10.0.0.1" {
+		t.Fatalf("sin cabecera de confianza debe usar el socket, obtuve %s", got)
+	}
+}
+
+func TestClientIP_UsaLaCabeceraDeConfianza(t *testing.T) {
+	req := requestFrom("10.0.0.1")
+	req.Header.Set("CF-Connecting-IP", " 203.0.113.9 ")
+	if got := clientIP(req, "CF-Connecting-IP"); got != "203.0.113.9" {
+		t.Fatalf("esperaba la IP de la cabecera, obtuve %s", got)
+	}
+}
+
+func TestClientIP_CabeceraInvalidaVuelveAlSocket(t *testing.T) {
+	req := requestFrom("10.0.0.1")
+	req.Header.Set("CF-Connecting-IP", "no-es-una-ip")
+	if got := clientIP(req, "CF-Connecting-IP"); got != "10.0.0.1" {
+		t.Fatalf("con cabecera inválida debe usar el socket, obtuve %s", got)
+	}
+}
+
+func TestRateLimiter_DetrasDelProxyCadaClienteTieneSuCuota(t *testing.T) {
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	limiter := NewRateLimiter(1, time.Hour).WithClientIPHeader("CF-Connecting-IP")
+	limiter.now = func() time.Time { return now }
+	handler := limiter.Wrap(okHandler)
+
+	// Mismo socket (el proxy) y clientes distintos
+	for _, ip := range []string{"203.0.113.1", "203.0.113.2"} {
+		req := requestFrom("10.0.0.1")
+		req.Header.Set("CF-Connecting-IP", ip)
+		rec := httptest.NewRecorder()
+		handler(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("cliente %s: esperaba 200, obtuve %d", ip, rec.Code)
+		}
+	}
+}

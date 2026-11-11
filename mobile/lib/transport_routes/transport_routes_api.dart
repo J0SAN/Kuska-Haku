@@ -104,7 +104,8 @@ class RoutesApi {
         'Content-Type': 'application/json',
       };
 
-  Uri _uri(String path) => Uri.parse('http://${AppConfig.backendHost}$path');
+  Uri _uri(String path) =>
+      Uri.parse('${AppConfig.httpScheme}://${AppConfig.backendHost}$path');
 
   void _verify(http.Response res, {int expected = 200}) {
     if (res.statusCode == expected) return;

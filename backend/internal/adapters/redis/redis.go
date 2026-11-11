@@ -29,6 +29,16 @@ func NewRedisPublisher(addr string) *RedisPublisher {
 	return &RedisPublisher{client: rdb}
 }
 
+// NewRedisPublisherFromURL acepta una URL redis:// o rediss:// (por ejemplo, la
+// cadena de conexión interna de Render Key Value), incluida la autenticación.
+func NewRedisPublisherFromURL(rawURL string) (*RedisPublisher, error) {
+	opts, err := redisclient.ParseURL(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("redis: URL de conexión inválida: %w", err)
+	}
+	return &RedisPublisher{client: redisclient.NewClient(opts)}, nil
+}
+
 func (r *RedisPublisher) Ping(ctx context.Context) error {
 	return r.client.Ping(ctx).Err()
 }

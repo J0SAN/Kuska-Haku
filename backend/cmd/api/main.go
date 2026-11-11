@@ -52,24 +52,40 @@ func main() {
 	historyRepo := postgres.NewPositionHistoryRepository(db)
 
 	// === 2. INFRAESTRUCTURA TIEMPO REAL E INGESTA UNIFICADA (Redis + Caso de Uso + MQTT) ===
-	redisAddr := os.Getenv("REDIS_ADDR")
-	if redisAddr == "" {
-		redisAddr = "127.0.0.1:6379"
+	// REDIS_URL (redis://…, la usa Render Key Value) tiene prioridad sobre REDIS_ADDR (host:puerto).
+	var redisClient *redis.RedisPublisher
+	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
+		redisClient, err = redis.NewRedisPublisherFromURL(redisURL)
+		if err != nil {
+			log.Fatalf("Configuración de Redis inválida: %v", err)
+		}
+	} else {
+		redisAddr := os.Getenv("REDIS_ADDR")
+		if redisAddr == "" {
+			redisAddr = "127.0.0.1:6379"
+		}
+		redisClient = redis.NewRedisPublisher(redisAddr)
 	}
-	mqttBroker := os.Getenv("MQTT_BROKER_URL")
-	if mqttBroker == "" {
-		mqttBroker = "tcp://127.0.0.1:1883"
-	}
-
-	redisClient := redis.NewRedisPublisher(redisAddr)
 	ingestor := usecases.NewPositionIngestor(redisClient, redisClient, historyRepo)
 
-	mqttAdapter := mqtt.NewMqttAdapter(mqttBroker, ingestor)
-	go mqttAdapter.Start()
+	// MQTT es opcional: lo usan el simulador y los rastreadores GPS. La app del
+	// conductor envía por HTTP, así que en despliegues sin broker se apaga con
+	// MQTT_ENABLED=false.
+	if os.Getenv("MQTT_ENABLED") == "false" {
+		log.Println("MQTT desactivado (MQTT_ENABLED=false): solo se reciben posiciones por HTTP")
+	} else {
+		mqttBroker := os.Getenv("MQTT_BROKER_URL")
+		if mqttBroker == "" {
+			mqttBroker = "tcp://127.0.0.1:1883"
+		}
+		mqttAdapter := mqtt.NewMqttAdapter(mqttBroker, ingestor)
+		mqttAdapter.Start()
+	}
 
 	// --- Inicialización de Servicios de Seguridad ---
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
+		log.Println("ADVERTENCIA: JWT_SECRET no definido, se usa la clave de desarrollo")
 		jwtSecret = "super-secret-key-para-desarrollo"
 	}
 
@@ -81,8 +97,11 @@ func main() {
 	wsGateway := websocket.NewGateway(redisClient, redisClient, tokenSvc)
 
 	authController := httpAdapter.NewAuthController(userRepo, hasherSvc, tokenSvc, passengerRegistrar)
-	registerLimiter := httpAdapter.NewRateLimiter(5, time.Hour)
-	loginLimiter := httpAdapter.NewRateLimiter(10, 10*time.Minute)
+	// Detrás del proxy de Render todas las peticiones llegan desde su IP; con
+	// CLIENT_IP_HEADER=CF-Connecting-IP cada cliente tiene su propia cuota.
+	clientIPHeader := os.Getenv("CLIENT_IP_HEADER")
+	registerLimiter := httpAdapter.NewRateLimiter(5, time.Hour).WithClientIPHeader(clientIPHeader)
+	loginLimiter := httpAdapter.NewRateLimiter(10, 10*time.Minute).WithClientIPHeader(clientIPHeader)
 	authMiddleware := httpAdapter.NewAuthMiddleware(tokenSvc)
 	adminController := httpAdapter.NewAdminController(routeRepo, fleetRepo, stopRepo)
 	passengerController := httpAdapter.NewPassengerController(routeRepo, fleetRepo, redisClient, routeRepo)
@@ -131,10 +150,20 @@ func main() {
 	mux.HandleFunc("GET /api/v1/admin/dashboard", authMiddleware.RequireRole(httpAdapter.DashboardHandler(statsRepo), domain.RoleAdmin))
 
 	// === 4. MIDDLEWARE CORS & SERVIDOR ===
-	handlerConCORS := httpAdapter.CORSMiddleware(mux)
+	allowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")
+	if allowedOrigins == "" {
+		allowedOrigins = httpAdapter.DefaultAllowedOrigins
+	}
+	handlerConCORS := httpAdapter.CORSMiddleware(httpAdapter.ParseAllowedOrigins(allowedOrigins), mux)
 
-	log.Println("kuska-haku backend escuchando en :8080")
-	if err := http.ListenAndServe(":8080", handlerConCORS); err != nil {
+	// Render inyecta PORT; en local se mantiene :8080.
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("kuska-haku backend escuchando en :%s", port)
+	if err := http.ListenAndServe(":"+port, handlerConCORS); err != nil {
 		log.Fatalf("Error en el servidor: %v", err)
 	}
 }

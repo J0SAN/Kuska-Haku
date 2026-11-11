@@ -1,0 +1,39 @@
+# Despliegue del backend de Kuska Haku en Render (planes gratuitos, pruebas de campo).
+# La base de datos es Neon (PostGIS + TimescaleDB), no Render Postgres.
+# El panel web se despliega aparte en Vercel (web/).
+services:
+  - type: web
+    name: kuska-haku-api
+    runtime: go
+    plan: free
+    region: ohio # misma zona que Neon (aws-us-east-2)
+    rootDir: backend
+    buildCommand: go build -tags netgo -ldflags '-s -w' -o bin/api ./cmd/api
+    startCommand: ./bin/api
+    healthCheckPath: /health
+    envVars:
+      # Cadena de Neon de la rama pruebas-campo, sin el parámetro channel_binding
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: kuska-haku-redis
+          property: connectionString
+      # Render gratis no ofrece broker MQTT; la app del conductor envía por HTTP
+      - key: MQTT_ENABLED
+        value: "false"
+      # Cloudflare (delante de Render) sobrescribe esta cabecera con la IP real
+      - key: CLIENT_IP_HEADER
+        value: CF-Connecting-IP
+      # Orígenes del panel web, separados por comas
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+
+  - type: keyvalue
+    name: kuska-haku-redis
+    plan: free
+    region: ohio
+    ipAllowList: [] # solo conexiones internas desde la red privada de Render

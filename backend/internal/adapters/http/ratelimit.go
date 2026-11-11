@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -19,6 +20,7 @@ type RateLimiter struct {
 	window      time.Duration
 	now         func() time.Time // inyectable para pruebas deterministas
 	lastCleanup time.Time
+	ipHeader    string // cabecera de confianza con la IP del cliente; vacía = socket
 }
 
 type rateWindow struct {
@@ -35,11 +37,20 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 	}
 }
 
+// WithClientIPHeader indica la cabecera que el proxy de la plataforma escribe con
+// la IP real del cliente (en Render, CF-Connecting-IP, que Cloudflare sobrescribe
+// en cada petición). Solo debe configurarse detrás de un proxy que la garantice:
+// sin proxy, el cliente podría falsificarla.
+func (l *RateLimiter) WithClientIPHeader(header string) *RateLimiter {
+	l.ipHeader = header
+	return l
+}
+
 // Wrap protege next con el límite configurado. Responde 429 con Retry-After
 // cuando se supera la cuota de la ventana.
 func (l *RateLimiter) Wrap(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		retryAfter, allowed := l.allow(clientIP(r))
+		retryAfter, allowed := l.allow(clientIP(r, l.ipHeader))
 		if !allowed {
 			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 			writeError(w, http.StatusTooManyRequests, "Demasiados intentos. Inténtalo en unos minutos.")
@@ -89,9 +100,15 @@ func (l *RateLimiter) cleanupLocked(now time.Time) {
 	l.lastCleanup = now
 }
 
-// clientIP toma la IP del socket. Detrás de un proxy hay que definir los
-// proxies de confianza antes de leer X-Forwarded-For (spec 002, §9.5).
-func clientIP(r *http.Request) string {
+// clientIP usa la cabecera de confianza si está configurada y contiene una IP
+// válida; si no, la IP del socket. No se lee X-Forwarded-For porque el proxy de
+// Render conserva lo que envía el cliente y solo agrega su propia dirección.
+func clientIP(r *http.Request, trustedHeader string) string {
+	if trustedHeader != "" {
+		if ip := net.ParseIP(strings.TrimSpace(r.Header.Get(trustedHeader))); ip != nil {
+			return ip.String()
+		}
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil {
 		return host

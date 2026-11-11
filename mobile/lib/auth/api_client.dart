@@ -44,12 +44,16 @@ class AuthException implements Exception {
 
 class AuthApiClient {
   final String backendHost;
+  final String scheme;
   final http.Client _client;
 
-  AuthApiClient({this.backendHost = AppConfig.backendHost, http.Client? client})
-      : _client = client ?? http.Client();
+  AuthApiClient({
+    this.backendHost = AppConfig.backendHost,
+    this.scheme = AppConfig.httpScheme,
+    http.Client? client,
+  }) : _client = client ?? http.Client();
 
-  Uri _uri(String path) => Uri.parse('http://$backendHost$path');
+  Uri _uri(String path) => Uri.parse('$scheme://$backendHost$path');
 
   Future<AuthResult> login(String email, String password) async {
     final response = await _post('/api/v1/auth/login', {

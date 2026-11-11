@@ -113,7 +113,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   void _connectWebSocket(RouteInfo route) {
     final encodedRoute = Uri.encodeComponent(route.name);
     final uri = Uri.parse(
-      'ws://${AppConfig.backendHost}/ws/routes/$encodedRoute',
+      '${AppConfig.wsScheme}://${AppConfig.backendHost}/ws/routes/$encodedRoute',
     ).replace(queryParameters: {'token': widget.session.token});
 
     final channel = WebSocketChannel.connect(uri);

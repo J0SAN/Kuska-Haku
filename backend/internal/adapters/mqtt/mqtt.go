@@ -12,36 +12,46 @@ import (
 	mqttclient "github.com/eclipse/paho.mqtt.golang"
 )
 
+var topics = map[string]byte{
+	"gps/positions":          1,
+	"kuska/+/bus/+/position": 1,
+}
+
 type MqttAdapter struct {
 	client   mqttclient.Client
 	ingestor ports.PositionIngestor
 }
 
+// NewMqttAdapter prepara el cliente sin conectarse todavía. La conexión se hace
+// en Start y se reintenta en segundo plano, así un broker caído no impide que la
+// API arranque: la ingesta HTTP del conductor sigue funcionando.
 func NewMqttAdapter(brokerURL string, ingestor ports.PositionIngestor) *MqttAdapter {
+	adapter := &MqttAdapter{ingestor: ingestor}
+
 	opts := mqttclient.NewClientOptions().
 		AddBroker(brokerURL).
 		SetClientID("kuska-haku-backend").
 		SetAutoReconnect(true).
-		SetConnectRetryInterval(2 * time.Second)
-	client := mqttclient.NewClient(opts)
-
-	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		log.Fatalf("Error conectando a MQTT: %v", token.Error())
-	}
-
-	return &MqttAdapter{
-		client:   client,
-		ingestor: ingestor,
-	}
+		SetConnectRetry(true).
+		SetConnectRetryInterval(2 * time.Second).
+		// Con sesión limpia el broker olvida las suscripciones al reconectar,
+		// por eso se vuelven a crear en cada conexión.
+		SetOnConnectHandler(adapter.subscribe).
+		SetConnectionLostHandler(func(_ mqttclient.Client, err error) {
+			log.Printf("Conexión MQTT perdida, reintentando: %v", err)
+		})
+	adapter.client = mqttclient.NewClient(opts)
+	return adapter
 }
 
-// Start arranca la escucha de los mensajes del simulador de buses y rastreadores.
+// Start inicia la conexión al broker. No bloquea: si el broker no responde,
+// el cliente reintenta cada pocos segundos.
 func (m *MqttAdapter) Start() {
-	topics := map[string]byte{
-		"gps/positions":          1,
-		"kuska/+/bus/+/position": 1,
-	}
-	token := m.client.SubscribeMultiple(topics, m.messageHandler)
+	m.client.Connect()
+}
+
+func (m *MqttAdapter) subscribe(client mqttclient.Client) {
+	token := client.SubscribeMultiple(topics, m.messageHandler)
 	token.Wait()
 	if token.Error() != nil {
 		log.Printf("Error suscribiendo a MQTT: %v", token.Error())

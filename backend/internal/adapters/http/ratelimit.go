@@ -21,6 +21,7 @@ type RateLimiter struct {
 	now         func() time.Time // inyectable para pruebas deterministas
 	lastCleanup time.Time
 	ipHeader    string // cabecera de confianza con la IP del cliente; vacía = socket
+	proxyHops   int    // proxies de confianza delante de la API (X-Forwarded-For)
 }
 
 type rateWindow struct {
@@ -46,11 +47,23 @@ func (l *RateLimiter) WithClientIPHeader(header string) *RateLimiter {
 	return l
 }
 
+// WithTrustedProxyHops indica cuántos proxies de confianza hay delante de la API
+// (variable TRUSTED_PROXY_HOPS). Con N > 0 se toma la N-ésima dirección de
+// X-Forwarded-For desde la derecha; las de la izquierda las puede falsificar el
+// cliente. Con 0 se usa la IP del socket.
+func (l *RateLimiter) WithTrustedProxyHops(hops int) *RateLimiter {
+	if hops < 0 {
+		hops = 0
+	}
+	l.proxyHops = hops
+	return l
+}
+
 // Wrap protege next con el límite configurado. Responde 429 con Retry-After
 // cuando se supera la cuota de la ventana.
 func (l *RateLimiter) Wrap(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		retryAfter, allowed := l.allow(clientIP(r, l.ipHeader))
+		retryAfter, allowed := l.allow(clientIP(r, l.ipHeader, l.proxyHops))
 		if !allowed {
 			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 			writeError(w, http.StatusTooManyRequests, "Demasiados intentos. Inténtalo en unos minutos.")
@@ -101,12 +114,19 @@ func (l *RateLimiter) cleanupLocked(now time.Time) {
 }
 
 // clientIP usa la cabecera de confianza si está configurada y contiene una IP
-// válida; si no, la IP del socket. No se lee X-Forwarded-For porque el proxy de
-// Render conserva lo que envía el cliente y solo agrega su propia dirección.
-func clientIP(r *http.Request, trustedHeader string) string {
+// válida; si no, y hay proxies de confianza declarados, la N-ésima entrada de
+// X-Forwarded-For desde la derecha; en último caso, la IP del socket.
+func clientIP(r *http.Request, trustedHeader string, proxyHops int) string {
 	if trustedHeader != "" {
 		if ip := net.ParseIP(strings.TrimSpace(r.Header.Get(trustedHeader))); ip != nil {
 			return ip.String()
+		}
+	}
+	if proxyHops > 0 {
+		if forwarded := strings.Split(r.Header.Get("X-Forwarded-For"), ","); len(forwarded) >= proxyHops {
+			if ip := net.ParseIP(strings.TrimSpace(forwarded[len(forwarded)-proxyHops])); ip != nil {
+				return ip.String()
+			}
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)

@@ -14,4 +14,13 @@ var (
 	ErrDNIAlreadyRegistered   = errors.New("ya existe una cuenta con ese DNI")
 	ErrEmailAlreadyRegistered = errors.New("ya existe una cuenta con ese correo")
 	ErrRoleNotAllowed         = errors.New("el registro público solo crea pasajeros")
+
+	// Fase 7: QR por vehículo y calificaciones de pasajeros.
+	ErrQRNotAvailable           = errors.New("este código QR ya no está disponible")
+	ErrQRAlreadyExists          = errors.New("el vehículo ya tiene un QR activo")
+	ErrInvalidRating            = errors.New("la calificación debe estar entre 1 y 5 estrellas")
+	ErrInvalidFeedbackComment   = errors.New("el comentario no puede superar los 500 caracteres")
+	ErrInvalidDeviceID          = errors.New("el identificador del dispositivo es inválido")
+	ErrFeedbackAlreadySubmitted = errors.New("ya calificaste este vehículo hoy")
+	ErrInvalidFeedbackStatus    = errors.New("estado de calificación inválido")
 )

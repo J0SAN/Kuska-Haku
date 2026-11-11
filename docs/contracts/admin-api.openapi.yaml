@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Kuska Haku — API REST del Panel Administrativo
-  version: 0.5.0-mvp
+  version: 0.6.0
   description: >
     Contrato REST consumido por el panel web administrativo (React).
     TODOS los endpoints bajo /api/v1/admin/ exigen un JWT válido con rol
@@ -261,7 +261,11 @@ paths:
 
   /api/v1/admin/suggestions:
     get:
-      summary: Buzón de sugerencias, más recientes primero
+      summary: Sugerencias generales del servicio, más recientes primero
+      description: >
+        Opiniones generales del servicio. No están asociadas a ningún vehículo
+        ni conductor; las calificaciones por vehículo viven en
+        /api/v1/admin/vehicle-feedback.
       parameters:
         - name: only
           in: query
@@ -289,7 +293,123 @@ paths:
         "204": { description: Actualizada }
         "404": { description: No existe }
 
+  /api/v1/admin/vehicle-qr:
+    get:
+      summary: Lista cada vehículo con su QR activo, si lo tiene
+      responses:
+        "200":
+          description: Vehículos y su QR
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/VehicleQRSummary" }
+
+  /api/v1/admin/vehicle-qr/{fleetId}:
+    post:
+      summary: Genera el primer QR activo del vehículo
+      description: >
+        Si el vehículo ya tiene un QR activo responde 409 y no invalida el
+        sticker existente. Para reemplazarlo se usa /rotate.
+      parameters: [{ $ref: "#/components/parameters/FleetId" }]
+      responses:
+        "201":
+          description: QR creado
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VehicleQR" }
+        "404": { description: El vehículo no existe }
+        "409": { description: Ya existe un QR activo }
+    delete:
+      summary: Revoca el QR activo del vehículo
+      parameters: [{ $ref: "#/components/parameters/FleetId" }]
+      responses:
+        "204": { description: Revocado }
+        "404": { description: No hay un QR activo para ese vehículo }
+
+  /api/v1/admin/vehicle-qr/{fleetId}/rotate:
+    post:
+      summary: Revoca el QR vigente y crea uno nuevo en una transacción
+      description: El QR impreso anterior deja de funcionar de inmediato.
+      parameters: [{ $ref: "#/components/parameters/FleetId" }]
+      responses:
+        "201":
+          description: QR regenerado
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VehicleQR" }
+        "404": { description: El vehículo no existe }
+
+  /api/v1/admin/vehicle-feedback:
+    get:
+      summary: Calificaciones por vehículo, más recientes primero
+      parameters:
+        - name: fleetId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { type: string, enum: [new, read, hidden] }
+      responses:
+        "200":
+          description: Hasta 200 calificaciones
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/VehicleFeedback" }
+
+  /api/v1/admin/vehicle-feedback/summary:
+    get:
+      summary: Promedio y cantidad de calificaciones por vehículo
+      description: >
+        Excluye las calificaciones ocultas y se ordena de menor a mayor
+        promedio, para mostrar primero lo que requiere atención.
+      parameters:
+        - name: days
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 365, default: 30 }
+      responses:
+        "200":
+          description: Promedios del periodo
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/VehicleRatingSummary" }
+        "400": { description: days fuera de rango }
+
+  /api/v1/admin/vehicle-feedback/{id}/status:
+    put:
+      summary: Cambia el estado de una calificación (leída u oculta)
+      parameters:
+        - {
+            name: id,
+            in: path,
+            required: true,
+            schema: { type: string, format: uuid },
+          }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [new, read, hidden] }
+      responses:
+        "204": { description: Actualizada }
+        "400": { description: Estado inválido }
+        "404": { description: No existe }
+
 components:
+  parameters:
+    FleetId:
+      name: fleetId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
   securitySchemes:
     bearerAuth:
       type: http
@@ -387,6 +507,7 @@ components:
 
     Suggestion:
       type: object
+      description: Sugerencia general del servicio; no tiene vehículo ni conductor asociado.
       properties:
         id: { type: string, format: uuid }
         userId: { type: string }
@@ -394,6 +515,56 @@ components:
         message: { type: string }
         status: { type: string, enum: [new, read] }
         createdAt: { type: string, format: date-time }
+
+    VehicleQR:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        fleetId: { type: string, format: uuid }
+        token:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{22}$"
+          description: Token opaco de 128 bits; se usa en /q/{token}.
+        createdAt: { type: string, format: date-time }
+
+    VehicleQRSummary:
+      type: object
+      properties:
+        fleetId: { type: string, format: uuid }
+        busCode: { type: string, example: "bus-01" }
+        routeId: { type: string, format: uuid }
+        routeName: { type: string, example: "R-01 Centro" }
+        driverId: { type: string, format: uuid }
+        driverName: { type: string }
+        qrCodeId: { type: string, format: uuid, description: Ausente si el vehículo no tiene QR activo }
+        token: { type: string, description: Ausente si el vehículo no tiene QR activo }
+        createdAt: { type: string, format: date-time }
+
+    VehicleFeedback:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        fleetId: { type: string, format: uuid, nullable: true, description: null si el bus fue eliminado }
+        qrCodeId: { type: string, format: uuid, nullable: true }
+        busCode: { type: string, description: Snapshot del bus al calificar }
+        routeName: { type: string, description: Snapshot de la ruta al calificar }
+        driverId: { type: string, format: uuid, nullable: true, description: Conductor asignado al calificar }
+        driverName: { type: string }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        comment: { type: string, maxLength: 500 }
+        serviceDate: { type: string, format: date, description: Fecha operativa de Lima }
+        busLive: { type: boolean, description: El bus transmitía GPS al calificar (señal, no bloqueo) }
+        status: { type: string, enum: [new, read, hidden] }
+        createdAt: { type: string, format: date-time }
+
+    VehicleRatingSummary:
+      type: object
+      properties:
+        fleetId: { type: string, format: uuid, nullable: true }
+        busCode: { type: string }
+        routeName: { type: string }
+        average: { type: number, example: 4.25 }
+        total: { type: integer }
 
     Dashboard:
       type: object

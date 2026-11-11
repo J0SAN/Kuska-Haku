@@ -114,3 +114,25 @@ type PositionHistoryRepository interface {
 type PositionIngestor interface {
 	Ingest(ctx context.Context, batch []domain.Position) (domain.IngestResult, error)
 }
+
+// === FASE 7: QR por vehículo y calificaciones de pasajeros ===
+
+type VehicleQRRepository interface {
+	ListWithFleet(ctx context.Context) ([]domain.VehicleQRSummary, error)
+	Create(ctx context.Context, fleetID, token, createdBy string) (*domain.VehicleQR, error)
+	Rotate(ctx context.Context, fleetID, token, createdBy string) (*domain.VehicleQR, error) // una transacción
+	Revoke(ctx context.Context, fleetID string) error
+	ResolveActive(ctx context.Context, token string) (*domain.VehicleQRTarget, error)
+}
+
+type VehicleFeedbackRepository interface {
+	Create(ctx context.Context, feedback *domain.VehicleFeedback) error
+	List(ctx context.Context, filter domain.VehicleFeedbackFilter) ([]domain.VehicleFeedback, error)
+	Summaries(ctx context.Context, fromDate string) ([]domain.VehicleRatingSummary, error)
+	UpdateStatus(ctx context.Context, id, status string) error
+}
+
+// QRTokenGenerator produce tokens opacos de 22 caracteres base64url (128 bits).
+type QRTokenGenerator interface {
+	New() (string, error)
+}

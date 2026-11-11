@@ -52,6 +52,8 @@ func main() {
 	suggestionRepo := postgres.NewSuggestionRepository(db)
 	statsRepo := postgres.NewStatsRepository(db)
 	historyRepo := postgres.NewPositionHistoryRepository(db)
+	vehicleQRRepo := postgres.NewVehicleQRRepository(db)
+	vehicleFeedbackRepo := postgres.NewVehicleFeedbackRepository(db)
 
 	// === 2. INFRAESTRUCTURA TIEMPO REAL E INGESTA UNIFICADA (Redis + Caso de Uso + MQTT) ===
 	// REDIS_URL (redis://…, la usa Render Key Value) tiene prioridad sobre REDIS_ADDR (host:puerto).
@@ -101,14 +103,25 @@ func main() {
 	authController := httpAdapter.NewAuthController(userRepo, hasherSvc, tokenSvc, passengerRegistrar)
 	// Detrás del proxy de Render todas las peticiones llegan desde su IP; con
 	// CLIENT_IP_HEADER=CF-Connecting-IP cada cliente tiene su propia cuota.
+	// TRUSTED_PROXY_HOPS es la alternativa genérica basada en X-Forwarded-For.
 	clientIPHeader := os.Getenv("CLIENT_IP_HEADER")
-	registerLimiter := httpAdapter.NewRateLimiter(5, time.Hour).WithClientIPHeader(clientIPHeader)
-	loginLimiter := httpAdapter.NewRateLimiter(10, 10*time.Minute).WithClientIPHeader(clientIPHeader)
+	proxyHops := parseTrustedProxyHops(os.Getenv("TRUSTED_PROXY_HOPS"))
+	registerLimiter := httpAdapter.NewRateLimiter(5, time.Hour).WithClientIPHeader(clientIPHeader).WithTrustedProxyHops(proxyHops)
+	loginLimiter := httpAdapter.NewRateLimiter(10, 10*time.Minute).WithClientIPHeader(clientIPHeader).WithTrustedProxyHops(proxyHops)
+	feedbackReadLimiter := httpAdapter.NewRateLimiter(120, 10*time.Minute).WithClientIPHeader(clientIPHeader).WithTrustedProxyHops(proxyHops)
+	feedbackWriteLimiter := httpAdapter.NewRateLimiter(30, time.Hour).WithClientIPHeader(clientIPHeader).WithTrustedProxyHops(proxyHops)
 	authMiddleware := httpAdapter.NewAuthMiddleware(tokenSvc)
 	adminController := httpAdapter.NewAdminController(routeRepo, fleetRepo, stopRepo)
 	passengerController := httpAdapter.NewPassengerController(routeRepo, fleetRepo, redisClient, routeRepo)
 	driverController := httpAdapter.NewDriverController(fleetRepo, routeRepo, incomeRepo, ingestor)
 	suggestionController := httpAdapter.NewSuggestionController(suggestionRepo)
+
+	// Calificaciones por vehículo (Fase 7, spec 003)
+	qrManager := usecases.NewVehicleQRManager(vehicleQRRepo, auth.NewQRTokenGenerator())
+	qrController := httpAdapter.NewVehicleQRController(qrManager, vehicleQRRepo)
+	feedbackAdminController := httpAdapter.NewVehicleFeedbackAdminController(vehicleFeedbackRepo)
+	feedbackSubmitter := usecases.NewVehicleFeedbackSubmitter(vehicleFeedbackRepo, vehicleQRRepo, redisClient)
+	publicFeedbackController := httpAdapter.NewPublicFeedbackController(feedbackSubmitter)
 
 	// === 3. ENRUTADOR (MUX) ===
 	mux := http.NewServeMux()
@@ -150,6 +163,20 @@ func main() {
 
 	// Dashboard Operativo (Fase 4 - Solo Admin)
 	mux.HandleFunc("GET /api/v1/admin/dashboard", authMiddleware.RequireRole(httpAdapter.DashboardHandler(statsRepo), domain.RoleAdmin))
+
+	// Calificaciones por vehículo (Fase 7): administración
+	mux.HandleFunc("GET /api/v1/admin/vehicle-qr", authMiddleware.RequireRole(qrController.List, domain.RoleAdmin))
+	mux.HandleFunc("POST /api/v1/admin/vehicle-qr/{fleetId}", authMiddleware.RequireRole(qrController.Generate, domain.RoleAdmin))
+	mux.HandleFunc("POST /api/v1/admin/vehicle-qr/{fleetId}/rotate", authMiddleware.RequireRole(qrController.Rotate, domain.RoleAdmin))
+	mux.HandleFunc("DELETE /api/v1/admin/vehicle-qr/{fleetId}", authMiddleware.RequireRole(qrController.Revoke, domain.RoleAdmin))
+	mux.HandleFunc("GET /api/v1/admin/vehicle-feedback", authMiddleware.RequireRole(feedbackAdminController.List, domain.RoleAdmin))
+	mux.HandleFunc("GET /api/v1/admin/vehicle-feedback/summary", authMiddleware.RequireRole(feedbackAdminController.Summary, domain.RoleAdmin))
+	mux.HandleFunc("PUT /api/v1/admin/vehicle-feedback/{id}/status", authMiddleware.RequireRole(feedbackAdminController.UpdateStatus, domain.RoleAdmin))
+
+	// Públicos: el QR es la credencial de acceso y el limitador la protección.
+	// Excepción deliberada a la regla de endpoints protegidos (spec 003, §6.5).
+	mux.HandleFunc("GET /api/v1/public/vehicle-feedback/{token}", feedbackReadLimiter.Wrap(publicFeedbackController.Resolve))
+	mux.HandleFunc("POST /api/v1/public/vehicle-feedback/{token}", feedbackWriteLimiter.Wrap(publicFeedbackController.Submit))
 
 	// === 4. MIDDLEWARE CORS & SERVIDOR ===
 	allowedOrigins := os.Getenv("CORS_ALLOWED_ORIGINS")

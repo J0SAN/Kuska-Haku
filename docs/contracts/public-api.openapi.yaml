@@ -1,0 +1,137 @@
+openapi: 3.0.3
+info:
+  title: Kuska Haku — API pública de calificaciones por vehículo
+  version: 0.1.0
+  description: >
+    Endpoints anónimos que consume la página pública /q/{token} del panel web.
+    El token del código QR es la credencial de acceso: no se usa JWT. La
+    protección contra abuso es el límite por IP y la unicidad por dispositivo,
+    vehículo y día. Las respuestas nunca incluyen datos del conductor ni
+    comentarios de otros pasajeros.
+
+servers:
+  - url: http://localhost:8080
+    description: Backend local
+
+security: []
+
+paths:
+  /api/v1/public/vehicle-feedback/{token}:
+    get:
+      summary: Resuelve el QR y devuelve el bus y la ruta que el pasajero debe ver
+      parameters:
+        - $ref: "#/components/parameters/Token"
+      responses:
+        "200":
+          description: Vehículo disponible para calificar
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicVehicle" }
+        "404":
+          description: >
+            Token inexistente, revocado o bus inactivo. Los tres casos
+            responden el mismo mensaje para no filtrar información.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "429":
+          description: Límite por IP superado (incluye Retry-After)
+          headers:
+            Retry-After:
+              schema: { type: integer }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+    post:
+      summary: Guarda una calificación anónima del vehículo del QR
+      parameters:
+        - $ref: "#/components/parameters/Token"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FeedbackRequest" }
+      responses:
+        "201":
+          description: Calificación guardada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [received] }
+        "400":
+          description: Calificación, comentario, deviceId o cuerpo inválidos
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: Token inexistente, revocado o bus inactivo
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Ya calificó este vehículo hoy desde este dispositivo
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "413":
+          description: Cuerpo mayor a 4 KB
+        "429":
+          description: Límite por IP superado (incluye Retry-After)
+          headers:
+            Retry-After:
+              schema: { type: integer }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+components:
+  parameters:
+    Token:
+      name: token
+      in: path
+      required: true
+      description: Token opaco de 22 caracteres base64url que viaja en el QR.
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{22}$"
+
+  schemas:
+    PublicVehicle:
+      type: object
+      description: >
+        Solo datos que el pasajero puede comprobar en el bus. Nunca incluye el
+        nombre ni el identificador del conductor.
+      required: [busCode, routeName]
+      properties:
+        busCode: { type: string, example: "bus-01" }
+        routeName: { type: string, example: "R-01 Centro" }
+
+    FeedbackRequest:
+      type: object
+      required: [rating, deviceId]
+      properties:
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+          description: Obligatorio.
+        comment:
+          type: string
+          maxLength: 500
+          default: ""
+          description: Opcional; se recortan los espacios.
+        deviceId:
+          type: string
+          pattern: "^[a-f0-9]{32}$"
+          description: >
+            Identificador anónimo del navegador (16 bytes en hex). El backend
+            guarda solo su SHA-256.
+
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        message: { type: string }

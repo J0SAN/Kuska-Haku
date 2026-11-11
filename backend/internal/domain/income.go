@@ -10,9 +10,15 @@ import (
 // Perú mantiene UTC-5 todo el año; usar FixedZone evita depender de tzdata en contenedores mínimos.
 var limaZone = time.FixedZone("PET", -5*60*60)
 
+// DateLima formatea un instante como fecha operativa de Perú (YYYY-MM-DD).
+// Se separa de TodayLima para poder inyectar un reloj fijo en las pruebas.
+func DateLima(t time.Time) string {
+	return t.In(limaZone).Format("2006-01-02")
+}
+
 // TodayLima devuelve la fecha actual en Perú con formato YYYY-MM-DD.
 func TodayLima() string {
-	return time.Now().In(limaZone).Format("2006-01-02")
+	return DateLima(time.Now())
 }
 
 const (

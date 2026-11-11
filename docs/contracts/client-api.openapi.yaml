@@ -54,7 +54,11 @@ paths:
 
   /api/v1/suggestions:
     post:
-      summary: Envía una sugerencia (rol passenger o driver)
+      summary: Envía una sugerencia general del servicio (rol passenger o driver)
+      description: >
+        Opinión general del servicio, sin vehículo ni conductor asociado. Para
+        calificar un vehículo concreto, el pasajero escanea el QR del bus
+        (ver public-api.openapi.yaml).
       requestBody:
         required: true
         content:
@@ -65,7 +69,7 @@ paths:
               properties:
                 message: { type: string, minLength: 10, maxLength: 1000 }
       responses:
-        "201": { description: Sugerencia registrada }
+        "201": { description: Sugerencia general registrada }
         "400": { description: Mensaje fuera de los límites de longitud }
         "403": { description: El rol admin no envía sugerencias, las lee }
 

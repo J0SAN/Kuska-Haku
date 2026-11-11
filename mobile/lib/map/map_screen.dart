@@ -301,7 +301,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
             onPressed: _fitCamera,
           ),
           IconButton(
-            tooltip: 'Enviar sugerencia',
+            tooltip: 'Sugerencia general',
             icon: const Icon(Icons.rate_review_outlined),
             onPressed: _openSuggestionDialog,
           ),

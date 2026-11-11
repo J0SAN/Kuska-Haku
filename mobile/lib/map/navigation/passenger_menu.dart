@@ -35,7 +35,7 @@ const List<PassengerMenuEntry> passengerMenuEntries = [
   ),
   PassengerMenuEntry(
     item: PassengerMenuItem.suggestions,
-    label: 'Buzón de sugerencias',
+    label: 'Sugerencias generales',
     icon: Icons.rate_review_outlined,
   ),
   PassengerMenuEntry(

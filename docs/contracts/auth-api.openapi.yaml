@@ -1,21 +1,24 @@
 openapi: 3.0.3
 info:
   title: Kuska Haku — API de Autenticación
-  version: 0.2.0-mvp
+  version: 0.3.0
   description: >
     Contrato compartido por los TRES clientes (app Pasajero, app Conductor,
     panel Web Admin) para registro, login y verificación de sesión. Un solo
     modelo de usuario con campo `role` — lo que cambia entre clientes es qué
     hacen después de autenticarse, no cómo se autentican.
 
+    El registro público solo crea cuentas `passenger` (spec 002). Las cuentas
+    `driver` y `admin` se gestionan por otra vía.
+
 servers:
   - url: http://localhost:8080
-    description: Backend local (Fase 2 a 4)
+    description: Backend local (Fase 2 a 6)
 
 paths:
   /api/v1/auth/register:
     post:
-      summary: Crea una cuenta nueva y devuelve un token de sesión
+      summary: Crea una cuenta de pasajero con DNI y devuelve un token de sesión
       requestBody:
         required: true
         content:
@@ -30,9 +33,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/AuthResponse"
         "400":
-          description: Datos inválidos (email mal formado, password corta, rol inválido, etc.)
+          description: >
+            Formato inválido (dni, checkDigit, nombres, email o contraseña) o
+            acceptTerms en false
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Se envió un role distinto de passenger
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "409":
-          description: Ya existe una cuenta con ese email
+          description: >
+            Ya existe una cuenta con ese DNI o con ese email (el mensaje indica
+            cuál)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Demasiados intentos de registro desde la misma IP
+          headers:
+            Retry-After:
+              description: Segundos que faltan para que se reinicie la ventana
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/auth/login:
     post:
@@ -52,6 +84,21 @@ paths:
                 $ref: "#/components/schemas/AuthResponse"
         "401":
           description: Email o contraseña incorrectos (mensaje genérico, no revela cuál de los dos)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: Demasiados intentos de login desde la misma IP
+          headers:
+            Retry-After:
+              description: Segundos que faltan para que se reinicie la ventana
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/auth/me:
     get:
@@ -67,6 +114,16 @@ paths:
                 $ref: "#/components/schemas/User"
         "401":
           description: Token ausente, inválido o expirado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: El usuario del token ya no existe
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
 components:
   securitySchemes:
@@ -78,20 +135,50 @@ components:
   schemas:
     RegisterRequest:
       type: object
-      required: [email, password, fullName]
+      required:
+        [dni, checkDigit, firstNames, lastNames, email, password, acceptTerms]
       properties:
+        dni:
+          type: string
+          pattern: "^[0-9]{8}$"
+          description: Ocho dígitos del DNI, sin espacios ni guiones
+          example: "46027897"
+        checkDigit:
+          type: string
+          minLength: 1
+          maxLength: 1
+          description: >
+            Carácter impreso junto al número del DNI (dígito o letra). Valida
+            que el número se copió bien; no prueba la identidad.
+          example: "4"
+        firstNames:
+          type: string
+          minLength: 2
+          maxLength: 100
+          description: Solo letras, espacios, apóstrofos y guiones
+          example: "Roxana Karina"
+        lastNames:
+          type: string
+          minLength: 2
+          maxLength: 100
+          example: "Delgado Huamán"
         email:
           type: string
           format: email
+          description: Se normaliza a minúsculas en el servidor
+          example: "roxana@correo.com"
         password:
           type: string
-          minLength: 6
-        fullName:
-          type: string
+          minLength: 8
+        acceptTerms:
+          type: boolean
+          description: Debe ser true para crear la cuenta
         role:
           type: string
-          enum: [passenger, driver, admin]
-          default: passenger
+          description: >
+            Campo obsoleto. Si llega, solo se acepta "passenger"; cualquier otro
+            valor responde 403.
+          enum: [passenger]
 
     LoginRequest:
       type: object
@@ -127,6 +214,15 @@ components:
           description: JWT firmado HS256, válido por 24 horas
         user:
           $ref: "#/components/schemas/User"
+
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+        message:
+          type: string
 
 # ---------------------------------------------------------------------------
 # Nota de arquitectura: los endpoints de gestión de flota/rutas/dashboard

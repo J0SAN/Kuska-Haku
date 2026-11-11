@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	_ "github.com/lib/pq"
 
@@ -74,11 +75,14 @@ func main() {
 
 	hasherSvc := auth.NewBcryptService()
 	tokenSvc := auth.NewJWTService(jwtSecret)
+	passengerRegistrar := usecases.NewPassengerRegistrar(userRepo, hasherSvc, tokenSvc)
 
 	// --- Inicialización de Gateway WebSocket (con JWT) y Controladores HTTP ---
 	wsGateway := websocket.NewGateway(redisClient, redisClient, tokenSvc)
 
-	authController := httpAdapter.NewAuthController(userRepo, hasherSvc, tokenSvc)
+	authController := httpAdapter.NewAuthController(userRepo, hasherSvc, tokenSvc, passengerRegistrar)
+	registerLimiter := httpAdapter.NewRateLimiter(5, time.Hour)
+	loginLimiter := httpAdapter.NewRateLimiter(10, 10*time.Minute)
 	authMiddleware := httpAdapter.NewAuthMiddleware(tokenSvc)
 	adminController := httpAdapter.NewAdminController(routeRepo, fleetRepo, stopRepo)
 	passengerController := httpAdapter.NewPassengerController(routeRepo, fleetRepo, redisClient, routeRepo)
@@ -94,8 +98,8 @@ func main() {
 	mux.HandleFunc("/ws", wsGateway.ServeRoute)
 
 	// Autenticación (Fase 2)
-	mux.HandleFunc("POST /api/v1/auth/register", authController.Register)
-	mux.HandleFunc("POST /api/v1/auth/login", authController.Login)
+	mux.HandleFunc("POST /api/v1/auth/register", registerLimiter.Wrap(authController.Register))
+	mux.HandleFunc("POST /api/v1/auth/login", loginLimiter.Wrap(authController.Login))
 	mux.HandleFunc("GET /api/v1/auth/me", authMiddleware.RequireAuth(authController.Me))
 
 	// Panel Administrativo: Rutas, Paraderos, Flota y Usuarios (Fase 3, 4 & 5 - Solo Admin)

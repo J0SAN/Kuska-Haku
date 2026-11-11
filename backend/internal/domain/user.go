@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -24,19 +25,39 @@ func (r Role) Valid() bool {
 }
 
 // User es la entidad de dominio. PasswordHash nunca debe serializarse en respuestas HTTP.
+// DNI y TermsAcceptedAt son punteros porque las cuentas creadas antes de la
+// migración 005 no tienen esos datos.
 type User struct {
-	ID           string
-	Email        string
-	PasswordHash string
-	FullName     string
-	Role         string
-	CreatedAt    time.Time
+	ID              string
+	Email           string
+	PasswordHash    string
+	FullName        string
+	Role            string
+	DNI             *string
+	TermsAcceptedAt *time.Time
+	CreatedAt       time.Time
+}
+
+var emailPattern = regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,24}$`)
+
+// NormalizeEmail recorta espacios y pasa el correo a minúsculas.
+func NormalizeEmail(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
+}
+
+// ValidateEmail comprueba el formato de un correo ya normalizado.
+func ValidateEmail(email string) error {
+	if !emailPattern.MatchString(email) {
+		return ErrInvalidEmail
+	}
+	return nil
 }
 
 // NewUser crea una instancia validada, aplicando el rol 'passenger' por defecto si viene vacío.
 func NewUser(email, passwordHash, fullName, role string) (*User, error) {
-	if !isValidEmail(email) {
-		return nil, errors.New("formato de correo inválido")
+	email = NormalizeEmail(email)
+	if err := ValidateEmail(email); err != nil {
+		return nil, err
 	}
 
 	if role == "" {
@@ -53,9 +74,4 @@ func NewUser(email, passwordHash, fullName, role string) (*User, error) {
 		FullName:     fullName,
 		Role:         role,
 	}, nil
-}
-
-func isValidEmail(e string) bool {
-	re := regexp.MustCompile(`^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,4}$`)
-	return re.MatchString(e)
 }

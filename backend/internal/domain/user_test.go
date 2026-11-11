@@ -1,36 +1,47 @@
 package domain
 
 import (
+	"errors"
 	"testing"
 )
 
 func TestNewUser(t *testing.T) {
 	tests := []struct {
-		name         string
-		email        string
-		passwordHash string
-		fullName     string
-		role         string
-		wantErr      bool
-		expectedRole string
+		name          string
+		email         string
+		passwordHash  string
+		fullName      string
+		role          string
+		wantErr       bool
+		expectedRole  string
+		expectedEmail string
 	}{
 		{
-			name:         "Usuario válido con rol explícito",
-			email:        "admin@kuskahaku.pe",
-			passwordHash: "hash_seguro_123",
-			fullName:     "Ana Admin",
-			role:         "admin",
-			wantErr:      false,
-			expectedRole: "admin",
+			name:          "Usuario válido con rol explícito",
+			email:         "admin@kuskahaku.pe",
+			passwordHash:  "hash_seguro_123",
+			fullName:      "Ana Admin",
+			role:          "admin",
+			expectedRole:  "admin",
+			expectedEmail: "admin@kuskahaku.pe",
 		},
 		{
-			name:         "Usuario válido con rol por defecto",
-			email:        "pasajero@kuskahaku.pe",
-			passwordHash: "hash_seguro_123",
-			fullName:     "Juan Pasajero",
-			role:         "",
-			wantErr:      false,
-			expectedRole: "passenger",
+			name:          "Usuario válido con rol por defecto",
+			email:         "pasajero@kuskahaku.pe",
+			passwordHash:  "hash_seguro_123",
+			fullName:      "Juan Pasajero",
+			role:          "",
+			expectedRole:  "passenger",
+			expectedEmail: "pasajero@kuskahaku.pe",
+		},
+		{
+			name:          "Normaliza mayúsculas y espacios del correo",
+			email:         "  CARLOS@Kuskahaku.PE ",
+			passwordHash:  "hash_seguro_123",
+			fullName:      "Carlos Rojas",
+			role:          "passenger",
+			expectedRole:  "passenger",
+			expectedEmail: "carlos@kuskahaku.pe",
 		},
 		{
 			name:         "Fallo por correo sin arroba",
@@ -41,11 +52,11 @@ func TestNewUser(t *testing.T) {
 			wantErr:      true,
 		},
 		{
-			name:         "Fallo por mayúsculas en el correo (fuera de la regex)",
-			email:        "CARLOS@kuskahaku.pe",
+			name:         "Fallo por rol inválido",
+			email:        "otro@kuskahaku.pe",
 			passwordHash: "hash_seguro_123",
-			fullName:     "Carlos Rojas",
-			role:         "passenger",
+			fullName:     "Otro Usuario",
+			role:         "superadmin",
 			wantErr:      true,
 		},
 	}
@@ -59,9 +70,29 @@ func TestNewUser(t *testing.T) {
 				return
 			}
 
-			if !tt.wantErr && user.Role != tt.expectedRole {
-				t.Errorf("NewUser() asignó rol = %v, se esperaba rol = %v", user.Role, tt.expectedRole)
+			if !tt.wantErr {
+				if user.Role != tt.expectedRole {
+					t.Errorf("NewUser() asignó rol = %v, se esperaba rol = %v", user.Role, tt.expectedRole)
+				}
+				if user.Email != tt.expectedEmail {
+					t.Errorf("NewUser() guardó correo = %v, se esperaba = %v", user.Email, tt.expectedEmail)
+				}
 			}
 		})
+	}
+}
+
+func TestNormalizeEmail(t *testing.T) {
+	if got := NormalizeEmail(" Jose@Gmail.COM "); got != "jose@gmail.com" {
+		t.Errorf("NormalizeEmail() = %q, se esperaba jose@gmail.com", got)
+	}
+}
+
+func TestValidateEmail(t *testing.T) {
+	if err := ValidateEmail("a@b.online"); err != nil {
+		t.Errorf("se esperaba correo válido, obtuve %v", err)
+	}
+	if err := ValidateEmail("a@b"); !errors.Is(err, ErrInvalidEmail) {
+		t.Errorf("se esperaba ErrInvalidEmail para a@b, obtuve %v", err)
 	}
 }

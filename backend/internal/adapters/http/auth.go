@@ -2,11 +2,16 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"kuska-haku-backend/internal/domain"
 	"kuska-haku-backend/internal/ports"
+	"kuska-haku-backend/internal/usecases"
 )
+
+// maxAuthBodyBytes limita el cuerpo de los endpoints públicos de autenticación.
+const maxAuthBodyBytes = 4 << 10
 
 type UserResponse struct {
 	ID       string `json:"id"`
@@ -25,68 +30,92 @@ func toUserResponse(u *domain.User) UserResponse {
 }
 
 type AuthController struct {
-	userRepo ports.UserRepository
-	hasher   ports.PasswordHasher
-	tokens   ports.TokenService
+	userRepo  ports.UserRepository
+	hasher    ports.PasswordHasher
+	tokens    ports.TokenService
+	registrar *usecases.PassengerRegistrar
 }
 
-func NewAuthController(userRepo ports.UserRepository, hasher ports.PasswordHasher, tokens ports.TokenService) *AuthController {
+func NewAuthController(
+	userRepo ports.UserRepository,
+	hasher ports.PasswordHasher,
+	tokens ports.TokenService,
+	registrar *usecases.PassengerRegistrar,
+) *AuthController {
 	return &AuthController{
-		userRepo: userRepo,
-		hasher:   hasher,
-		tokens:   tokens,
+		userRepo:  userRepo,
+		hasher:    hasher,
+		tokens:    tokens,
+		registrar: registrar,
 	}
 }
 
+// RegisterRequest documenta el contrato del registro público. Role se acepta
+// solo para poder rechazarlo explícitamente: el registro únicamente crea pasajeros.
 type RegisterRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	FullName string `json:"fullName"`
-	Role     string `json:"role"`
+	DNI         string `json:"dni"`
+	CheckDigit  string `json:"checkDigit"`
+	FirstNames  string `json:"firstNames"`
+	LastNames   string `json:"lastNames"`
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	AcceptTerms bool   `json:"acceptTerms"`
+	Role        string `json:"role"`
 }
 
 func (c *AuthController) Register(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxAuthBodyBytes)
+
 	var req RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Cuerpo de petición inválido", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "Cuerpo de petición inválido")
 		return
 	}
 
-	if len(req.Password) < 6 {
-		http.Error(w, "La contraseña debe tener al menos 6 caracteres", http.StatusBadRequest)
+	if req.Role != "" && req.Role != string(domain.RolePassenger) {
+		writeError(w, http.StatusForbidden, domain.ErrRoleNotAllowed.Error())
 		return
 	}
 
-	hashedPassword, err := c.hasher.Hash(req.Password)
+	user, token, err := c.registrar.Register(r.Context(), usecases.RegisterInput{
+		DNI:         req.DNI,
+		CheckDigit:  req.CheckDigit,
+		FirstNames:  req.FirstNames,
+		LastNames:   req.LastNames,
+		Email:       req.Email,
+		Password:    req.Password,
+		AcceptTerms: req.AcceptTerms,
+	})
 	if err != nil {
-		http.Error(w, "Error interno al procesar seguridad", http.StatusInternalServerError)
+		writeRegisterError(w, err)
 		return
 	}
 
-	user, err := domain.NewUser(req.Email, hashedPassword, req.FullName, req.Role)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if err := c.userRepo.Create(r.Context(), user); err != nil {
-		http.Error(w, "Error al crear usuario o el correo ya está registrado", http.StatusConflict)
-		return
-	}
-
-	token, err := c.tokens.Generate(*user)
-	if err != nil {
-		http.Error(w, "Error al generar token de sesión", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusCreated, map[string]any{
 		"message": "Usuario creado exitosamente",
 		"token":   token,
 		"user":    toUserResponse(user),
 	})
+}
+
+func writeRegisterError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, domain.ErrTermsNotAccepted),
+		errors.Is(err, domain.ErrInvalidDNI),
+		errors.Is(err, domain.ErrInvalidCheckDigit),
+		errors.Is(err, domain.ErrInvalidName),
+		errors.Is(err, domain.ErrInvalidEmail),
+		errors.Is(err, domain.ErrWeakPassword):
+		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, domain.ErrDNIAlreadyRegistered):
+		writeError(w, http.StatusConflict, "Ya existe una cuenta con este DNI. Si no la creaste tú, contacta a soporte.")
+	case errors.Is(err, domain.ErrEmailAlreadyRegistered):
+		writeError(w, http.StatusConflict, "Este correo ya está registrado.")
+	case errors.Is(err, domain.ErrRoleNotAllowed):
+		writeError(w, http.StatusForbidden, err.Error())
+	default:
+		writeError(w, http.StatusInternalServerError, "Error interno al crear la cuenta")
+	}
 }
 
 type LoginRequest struct {
@@ -97,29 +126,28 @@ type LoginRequest struct {
 func (c *AuthController) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Cuerpo de petición inválido", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "Cuerpo de petición inválido")
 		return
 	}
 
-	user, err := c.userRepo.GetByEmail(r.Context(), req.Email)
+	user, err := c.userRepo.GetByEmail(r.Context(), domain.NormalizeEmail(req.Email))
 	if err != nil || user == nil {
-		http.Error(w, "Credenciales inválidas", http.StatusUnauthorized)
+		writeError(w, http.StatusUnauthorized, "Credenciales inválidas")
 		return
 	}
 
 	if err := c.hasher.Compare(user.PasswordHash, req.Password); err != nil {
-		http.Error(w, "Credenciales inválidas", http.StatusUnauthorized)
+		writeError(w, http.StatusUnauthorized, "Credenciales inválidas")
 		return
 	}
 
 	token, err := c.tokens.Generate(*user)
 	if err != nil {
-		http.Error(w, "Error al generar token de sesión", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "Error al generar token de sesión")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	writeJSON(w, http.StatusOK, map[string]any{
 		"token": token,
 		"user":  toUserResponse(user),
 	})
@@ -128,16 +156,15 @@ func (c *AuthController) Login(w http.ResponseWriter, r *http.Request) {
 func (c *AuthController) Me(w http.ResponseWriter, r *http.Request) {
 	claims, ok := ClaimsFromContext(r.Context())
 	if !ok {
-		http.Error(w, "No autenticado", http.StatusUnauthorized)
+		writeError(w, http.StatusUnauthorized, "No autenticado")
 		return
 	}
 
 	user, err := c.userRepo.GetByID(r.Context(), claims.UserID)
 	if err != nil || user == nil {
-		http.Error(w, "Usuario no encontrado", http.StatusNotFound)
+		writeError(w, http.StatusNotFound, "Usuario no encontrado")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(toUserResponse(user))
+	writeJSON(w, http.StatusOK, toUserResponse(user))
 }

@@ -1,4 +1,4 @@
--- Migración 005 (Fase 6): registro de pasajeros con DNI (spec 002).
+-- Migración 005 (Fase 6): registro de pasajeros con DNI.
 -- dni es NULL para las cuentas creadas antes de esta fase (admin, conductores
 -- y pasajeros de prueba).
 ALTER TABLE kuska.users ADD COLUMN IF NOT EXISTS dni VARCHAR(8);

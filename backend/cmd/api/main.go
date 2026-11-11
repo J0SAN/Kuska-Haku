@@ -116,7 +116,7 @@ func main() {
 	driverController := httpAdapter.NewDriverController(fleetRepo, routeRepo, incomeRepo, ingestor)
 	suggestionController := httpAdapter.NewSuggestionController(suggestionRepo)
 
-	// Calificaciones por vehículo (Fase 7, spec 003)
+	// Calificaciones por vehículo (Fase 7)
 	qrManager := usecases.NewVehicleQRManager(vehicleQRRepo, auth.NewQRTokenGenerator())
 	qrController := httpAdapter.NewVehicleQRController(qrManager, vehicleQRRepo)
 	feedbackAdminController := httpAdapter.NewVehicleFeedbackAdminController(vehicleFeedbackRepo)
@@ -174,7 +174,7 @@ func main() {
 	mux.HandleFunc("PUT /api/v1/admin/vehicle-feedback/{id}/status", authMiddleware.RequireRole(feedbackAdminController.UpdateStatus, domain.RoleAdmin))
 
 	// Públicos: el QR es la credencial de acceso y el limitador la protección.
-	// Excepción deliberada a la regla de endpoints protegidos (spec 003, §6.5).
+	// Excepción deliberada a la regla de endpoints protegidos: el pasajero no tiene sesión.
 	mux.HandleFunc("GET /api/v1/public/vehicle-feedback/{token}", feedbackReadLimiter.Wrap(publicFeedbackController.Resolve))
 	mux.HandleFunc("POST /api/v1/public/vehicle-feedback/{token}", feedbackWriteLimiter.Wrap(publicFeedbackController.Submit))
 

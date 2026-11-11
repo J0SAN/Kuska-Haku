@@ -37,7 +37,7 @@ func TestParseDNI(t *testing.T) {
 }
 
 // La tabla usa DNIs ficticios calculados con el mismo algoritmo. No se
-// commitean DNIs reales (spec 002, §8).
+// commitean DNIs reales.
 func TestValidCheckDigit(t *testing.T) {
 	tests := []struct {
 		name       string

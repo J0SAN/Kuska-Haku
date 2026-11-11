@@ -8,7 +8,7 @@ info:
     modelo de usuario con campo `role` — lo que cambia entre clientes es qué
     hacen después de autenticarse, no cómo se autentican.
 
-    El registro público solo crea cuentas `passenger` (spec 002). Las cuentas
+    El registro público solo crea cuentas `passenger`. Las cuentas
     `driver` y `admin` se gestionan por otra vía.
 
 servers:

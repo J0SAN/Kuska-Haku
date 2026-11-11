@@ -1,4 +1,4 @@
--- Migración 006 (Fase 7): QR por vehículo y calificaciones de pasajeros (spec 003).
+-- Migración 006 (Fase 7): QR por vehículo y calificaciones de pasajeros.
 -- Tablas separadas de kuska.suggestions, que queda para opiniones generales del servicio.
 CREATE TABLE IF NOT EXISTS kuska.vehicle_qr_codes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

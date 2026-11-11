@@ -1,6 +1,6 @@
 /// Lógica de validación del formulario de registro, separada del widget para
 /// poder probarla sin Flutter. El algoritmo del dígito verificador es el mismo
-/// que `backend/internal/domain/dni.go` (spec 002, §4.2).
+/// que `backend/internal/domain/dni.go`.
 library;
 
 const _dniPattern = r'^[0-9]{8}$';

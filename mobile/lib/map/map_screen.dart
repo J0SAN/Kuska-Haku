@@ -7,8 +7,19 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../auth/api_client.dart';
 import '../config.dart';
+import '../theme/app_colors.dart';
 import '../transport_routes/transport_routes_api.dart';
+import 'navigation/passenger_drawer.dart';
+import 'navigation/passenger_help_dialog.dart';
+import 'navigation/passenger_menu.dart';
+import 'navigation/passenger_profile_sheet.dart';
+import 'navigation/passenger_route_picker.dart';
+import 'navigation/passenger_route_stops_sheet.dart';
+import 'navigation/passenger_suggestion_dialog.dart';
+import 'widgets/eta_card.dart';
 
+/// Mapa en vivo del pasajero. Orquesta el estado (ruta, WebSocket, ETA y
+/// selección del menú) y delega la UI secundaria a `navigation/` y `widgets/`.
 class LiveMapScreen extends StatefulWidget {
   final AuthResult session;
   final VoidCallback? onLogout;
@@ -25,7 +36,6 @@ class LiveMapScreen extends StatefulWidget {
 
 class _LiveMapScreenState extends State<LiveMapScreen> {
   static const _cajamarcaCenter = LatLng(-7.1611, -78.5127);
-  static const _greenColor = Color(0xFF2E7D32);
 
   late final RoutesApi _api;
   GoogleMapController? _mapController;
@@ -36,6 +46,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   final Map<String, Marker> _markers = {};
   List<BusEta> _etas = [];
   String _status = 'Cargando ruta...';
+  PassengerMenuItem _selectedItem = PassengerMenuItem.liveMap;
 
   @override
   void initState() {
@@ -54,17 +65,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
         setState(() => _status = 'No hay rutas activas por el momento');
         return;
       }
-      setState(() {
-        _route = route;
-        _status = 'Esperando buses en ${route.name}';
-      });
-      _fitCamera();
-      _connectWebSocket(route);
-      await _updateEta();
-      _etaTimer = Timer.periodic(
-        const Duration(seconds: 5),
-        (_) => _updateEta(),
-      );
+      await _switchRoute(route);
     } on RoutesApiException catch (e) {
       if (mounted) {
         setState(() => _status = e.message);
@@ -76,22 +77,61 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     }
   }
 
+  /// Cambia la ruta activa cerrando la conexión anterior antes de abrir la nueva.
+  Future<void> _switchRoute(RouteInfo route) async {
+    _etaTimer?.cancel();
+    _etaTimer = null;
+
+    final previousChannel = _channel;
+    _channel = null;
+    await previousChannel?.sink.close();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _markers.clear();
+      _etas = [];
+      _route = route;
+      _status = 'Esperando buses en ${route.name}';
+    });
+
+    _fitCamera();
+    _connectWebSocket(route);
+    await _updateEta();
+
+    if (!mounted || _route?.id != route.id) {
+      return;
+    }
+    _etaTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _updateEta(),
+    );
+  }
+
   void _connectWebSocket(RouteInfo route) {
     final encodedRoute = Uri.encodeComponent(route.name);
     final uri = Uri.parse(
       'ws://${AppConfig.backendHost}/ws/routes/$encodedRoute',
     ).replace(queryParameters: {'token': widget.session.token});
 
-    _channel = WebSocketChannel.connect(uri);
-    _channel!.stream.listen(
-      (raw) => _onPosition(jsonDecode(raw as String) as Map<String, dynamic>),
+    final channel = WebSocketChannel.connect(uri);
+    _channel = channel;
+    channel.stream.listen(
+      (raw) {
+        if (!identical(_channel, channel)) {
+          return;
+        }
+        _onPosition(jsonDecode(raw as String) as Map<String, dynamic>);
+      },
       onError: (_) {
-        if (mounted) {
+        if (mounted && identical(_channel, channel)) {
           setState(() => _status = 'Conexión en vivo interrumpida');
         }
       },
       onDone: () {
-        if (mounted) {
+        if (mounted && identical(_channel, channel)) {
           setState(() => _status = 'Desconectado del servidor');
         }
       },
@@ -106,6 +146,9 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     );
     final heading = (data['heading'] as num?)?.toDouble() ?? 0;
 
+    if (!mounted) {
+      return;
+    }
     setState(() {
       _status = 'Bus $busId en movimiento';
       _markers[busId] = Marker(
@@ -127,7 +170,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     }
     try {
       final etas = await _api.getEta(route.id);
-      if (mounted) {
+      if (mounted && _route?.id == route.id) {
         setState(() => _etas = etas);
       }
     } catch (_) {
@@ -171,45 +214,9 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     } catch (_) {}
   }
 
-  String _formatEta(int seconds) {
-    if (seconds < 60) {
-      return '$seconds s';
-    }
-    final min = seconds ~/ 60;
-    final sec = seconds % 60;
-    return sec == 0 ? '$min min' : '$min min $sec s';
-  }
-
   Future<void> _openSuggestionDialog() async {
-    String draftText = '';
-    final message = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Enviar sugerencia'),
-        content: TextField(
-          autofocus: true,
-          maxLines: 4,
-          maxLength: 1000,
-          onChanged: (value) => draftText = value,
-          decoration: const InputDecoration(
-            hintText: 'Cuéntanos qué podemos mejorar',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, draftText),
-            child: const Text('Enviar'),
-          ),
-        ],
-      ),
-    );
-
-    if (message == null) {
+    final message = await showPassengerSuggestionDialog(context);
+    if (message == null || !mounted) {
       return;
     }
 
@@ -229,10 +236,44 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     );
   }
 
+  Future<void> _showRoutePicker() async {
+    final selectedRoute = await showPassengerRoutePicker(
+      context,
+      routes: _api.listRoutes(),
+      currentRouteId: _route?.id,
+    );
+    if (!mounted || selectedRoute == null) {
+      return;
+    }
+    if (selectedRoute.id == _route?.id) {
+      return;
+    }
+    await _switchRoute(selectedRoute);
+  }
+
+  void _onMenuSelected(PassengerMenuItem item) {
+    switch (item) {
+      case PassengerMenuItem.liveMap:
+        setState(() => _selectedItem = PassengerMenuItem.liveMap);
+        _fitCamera();
+      case PassengerMenuItem.arrivals:
+        showRouteStopsSheet(context, route: _route, etas: _etas);
+      case PassengerMenuItem.routes:
+        setState(() => _selectedItem = PassengerMenuItem.routes);
+        _showRoutePicker();
+      case PassengerMenuItem.suggestions:
+        _openSuggestionDialog();
+      case PassengerMenuItem.help:
+        showPassengerHelpDialog(context);
+    }
+  }
+
   @override
   void dispose() {
     _etaTimer?.cancel();
-    _channel?.sink.close();
+    final channel = _channel;
+    _channel = null;
+    channel?.sink.close();
     _mapController?.dispose();
     super.dispose();
   }
@@ -241,22 +282,29 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   Widget build(BuildContext context) {
     final route = _route;
     return Scaffold(
+      drawer: PassengerDrawer(
+        user: widget.session.user,
+        selected: _selectedItem,
+        onSelect: _onMenuSelected,
+        onProfileTap: () =>
+            showPassengerProfileSheet(context, widget.session.user),
+        onLogout: widget.onLogout,
+      ),
       appBar: AppBar(
-        title: Text(widget.session.user.fullName),
-        backgroundColor: _greenColor,
-        foregroundColor: Colors.white,
+        title: Text(_route?.name ?? 'Kuska Haku'),
+        backgroundColor: AppColors.primary,
+        foregroundColor: AppColors.onPrimary,
         actions: [
+          IconButton(
+            tooltip: 'Centrar ruta',
+            icon: const Icon(Icons.my_location),
+            onPressed: _fitCamera,
+          ),
           IconButton(
             tooltip: 'Enviar sugerencia',
             icon: const Icon(Icons.rate_review_outlined),
             onPressed: _openSuggestionDialog,
           ),
-          if (widget.onLogout != null)
-            IconButton(
-              tooltip: 'Cerrar sesión',
-              icon: const Icon(Icons.logout),
-              onPressed: widget.onLogout,
-            ),
         ],
       ),
       body: Stack(
@@ -273,7 +321,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                     Polyline(
                       polylineId: PolylineId(route.id),
                       points: route.path,
-                      color: _greenColor,
+                      color: AppColors.primary,
                       width: 5,
                     ),
                   },
@@ -299,62 +347,8 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
               left: 12,
               right: 12,
               bottom: 12,
-              child: Card(
-                elevation: 4,
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Próximas llegadas',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: _greenColor,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      for (final bus in _etas) _buildEtaRow(bus),
-                    ],
-                  ),
-                ),
-              ),
+              child: EtaCard(etas: _etas),
             ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildEtaRow(BusEta bus) {
-    if (bus.offRoute) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Row(
-          children: [
-            const Icon(Icons.alt_route, size: 18, color: Colors.orange),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text('${bus.busId}: fuera de ruta, ETA no disponible'),
-            ),
-          ],
-        ),
-      );
-    }
-
-    final next = bus.nextStop;
-    final text = next == null
-        ? '${bus.busId}: recorrido completado'
-        : '${bus.busId} llega a ${next.name} en '
-            '${_formatEta(next.etaSeconds ?? 0)} '
-            '(${next.distanceMeters.round()} m)';
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        children: [
-          const Icon(Icons.directions_bus, size: 18, color: _greenColor),
-          const SizedBox(width: 8),
-          Expanded(child: Text(text)),
         ],
       ),
     );

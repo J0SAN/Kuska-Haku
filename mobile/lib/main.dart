@@ -4,6 +4,7 @@ import 'auth/api_client.dart';
 import 'auth/login_screen.dart';
 import 'driver/presentation/driver_home_screen.dart';
 import 'map/map_screen.dart';
+import 'theme/app_colors.dart';
 
 void main() {
   runApp(const KuskaHakuApp());
@@ -19,7 +20,7 @@ class KuskaHakuApp extends StatelessWidget {
     return MaterialApp(
       title: 'Kuska Haku',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2E7D32)),
+        colorScheme: ColorScheme.fromSeed(seedColor: AppColors.primary),
         useMaterial3: true,
       ),
       home: const RootScreen(),
@@ -79,7 +80,7 @@ class _AdminNoticeScreen extends StatelessWidget {
               const Icon(
                 Icons.admin_panel_settings,
                 size: 56,
-                color: Color(0xFF2E7D32),
+                color: AppColors.primary,
               ),
               const SizedBox(height: 12),
               const Text(

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import '../theme/app_colors.dart';
 import 'api_client.dart';
+import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   final AuthApiClient apiClient;
@@ -49,10 +51,21 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  void _openRegister() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => RegisterScreen(
+          apiClient: widget.apiClient,
+          onRegistered: widget.onLoginSuccess,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF1F8F2),
+      backgroundColor: AppColors.background,
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -63,7 +76,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const Icon(
                 Icons.directions_bus,
                 size: 64,
-                color: Color(0xFF2E7D32),
+                color: AppColors.primary,
               ),
               const SizedBox(height: 12),
               const Text(
@@ -72,7 +85,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 style: TextStyle(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
-                  color: Color(0xFF1B5E20),
+                  color: AppColors.primaryDark,
                 ),
               ),
               const SizedBox(height: 32),
@@ -95,14 +108,14 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               if (_error != null) ...[
                 const SizedBox(height: 12),
-                Text(_error!, style: const TextStyle(color: Colors.red)),
+                Text(_error!, style: const TextStyle(color: AppColors.error)),
               ],
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: _loading ? null : _submit,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2E7D32),
-                  foregroundColor: Colors.white,
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: AppColors.onPrimary,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
                 child: _loading
@@ -111,10 +124,15 @@ class _LoginScreenState extends State<LoginScreen> {
                         width: 20,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: Colors.white,
+                          color: AppColors.onPrimary,
                         ),
                       )
                     : const Text('Ingresar'),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: _loading ? null : _openRegister,
+                child: const Text('¿No tienes cuenta? Regístrate'),
               ),
             ],
           ),

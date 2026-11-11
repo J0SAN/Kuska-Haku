@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../auth/api_client.dart';
+import '../../theme/app_colors.dart';
 import '../data/driver_api.dart';
 import '../tracking/shift_controller.dart';
 
@@ -19,8 +20,6 @@ class DriverHomeScreen extends StatefulWidget {
 }
 
 class _DriverHomeScreenState extends State<DriverHomeScreen> {
-  static const _greenColor = Color(0xFF2E7D32);
-
   late final DriverApi _api;
   late final ShiftController _shift;
 
@@ -119,8 +118,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.session.user.fullName),
-        backgroundColor: _greenColor,
-        foregroundColor: Colors.white,
+        backgroundColor: AppColors.primary,
+        foregroundColor: AppColors.onPrimary,
         actions: [
           IconButton(
             tooltip: 'Cerrar sesión',
@@ -148,7 +147,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     final bus = _bus;
     return Card(
       child: ListTile(
-        leading: const Icon(Icons.directions_bus, color: _greenColor, size: 32),
+        leading: const Icon(
+          Icons.directions_bus,
+          color: AppColors.primary,
+          size: 32,
+        ),
         title: Text(
           bus == null ? 'Sin bus asignado' : 'Unidad ${bus.busId}',
           style: const TextStyle(fontWeight: FontWeight.bold),
@@ -182,7 +185,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   children: [
                     Icon(
                       isRunning ? Icons.gps_fixed : Icons.gps_off,
-                      color: isRunning ? _greenColor : Colors.grey,
+                      color: isRunning ? AppColors.primary : AppColors.inactive,
                     ),
                     const SizedBox(width: 8),
                     Text(
@@ -204,14 +207,14 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                 if (_shift.buffer.dropped > 0)
                   Text(
                     'Se descartaron ${_shift.buffer.dropped} puntos antiguos por falta prolongada de conexión',
-                    style: const TextStyle(color: Colors.orange),
+                    style: const TextStyle(color: AppColors.warning),
                   ),
                 if (_shift.gpsMessage != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
                       _shift.gpsMessage!,
-                      style: const TextStyle(color: Colors.red),
+                      style: const TextStyle(color: AppColors.error),
                     ),
                   ),
                 if (_shift.uploadMessage != null)
@@ -219,7 +222,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                     padding: const EdgeInsets.only(top: 8),
                     child: Text(
                       _shift.uploadMessage!,
-                      style: const TextStyle(color: Colors.orange),
+                      style: const TextStyle(color: AppColors.warning),
                     ),
                   ),
                 if (_shift.sessionExpired)
@@ -236,7 +239,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   child: FilledButton.icon(
                     style: FilledButton.styleFrom(
                       backgroundColor:
-                          isRunning ? Colors.red.shade700 : _greenColor,
+                          isRunning ? AppColors.error : AppColors.primary,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
                     icon: Icon(isRunning ? Icons.stop : Icons.play_arrow),
@@ -296,7 +299,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
               ),
             ),
             FilledButton(
-              style: FilledButton.styleFrom(backgroundColor: _greenColor),
+              style: FilledButton.styleFrom(backgroundColor: AppColors.primary),
               onPressed: _saving || _bus == null ? null : _submitIncome,
               child: _saving
                   ? const SizedBox(
@@ -304,7 +307,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                       width: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: AppColors.onPrimary,
                       ),
                     )
                   : const Text('Registrar'),
@@ -335,7 +338,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                 '${today.totalPassengers} pasajeros  ·  ${_formatPen(today.totalAmount)}',
                 style: const TextStyle(
                   fontSize: 20,
-                  color: _greenColor,
+                  color: AppColors.primary,
                   fontWeight: FontWeight.bold,
                 ),
               ),

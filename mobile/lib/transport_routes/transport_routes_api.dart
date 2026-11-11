@@ -94,7 +94,10 @@ class BusEta {
 
 class RoutesApi {
   final String token;
-  RoutesApi({required this.token});
+  final http.Client _client;
+
+  RoutesApi({required this.token, http.Client? client})
+      : _client = client ?? http.Client();
 
   Map<String, String> get _headers => {
         'Authorization': 'Bearer $token',
@@ -113,17 +116,24 @@ class RoutesApi {
     throw RoutesApiException(message);
   }
 
-  /// Obtiene la primera ruta activa disponible.
-  Future<RouteInfo?> getActiveRoute() async {
-    final res = await http.get(_uri('/api/v1/routes'), headers: _headers);
+  /// Lista todas las rutas activas disponibles.
+  Future<List<RouteInfo>> listRoutes() async {
+    final res = await _client.get(_uri('/api/v1/routes'), headers: _headers);
     _verify(res);
     final list = jsonDecode(res.body) as List<dynamic>;
-    if (list.isEmpty) return null;
-    return RouteInfo.fromJson(list.first as Map<String, dynamic>);
+    return list
+        .map((json) => RouteInfo.fromJson(json as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Obtiene la primera ruta activa disponible.
+  Future<RouteInfo?> getActiveRoute() async {
+    final list = await listRoutes();
+    return list.isEmpty ? null : list.first;
   }
 
   Future<List<BusEta>> getEta(String routeId) async {
-    final res = await http.get(
+    final res = await _client.get(
       _uri('/api/v1/routes/$routeId/eta'),
       headers: _headers,
     );
@@ -135,7 +145,7 @@ class RoutesApi {
   }
 
   Future<void> sendSuggestion(String message) async {
-    final res = await http.post(
+    final res = await _client.post(
       _uri('/api/v1/suggestions'),
       headers: _headers,
       body: jsonEncode({'message': message}),

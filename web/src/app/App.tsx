@@ -7,26 +7,35 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
-import { useAuthStore } from "./store/authStore";
-import LoginPage from "./features/auth/LoginPage";
+import { useAuthStore } from "@/features/auth";
+import LoginPage from "@/features/auth/LoginPage";
 
-const DashboardPage = lazy(() => import("./features/dashboard/DashboardPage"));
+const DashboardPage = lazy(() => import("@/features/dashboard/DashboardPage"));
 const TransportRoutesPage = lazy(
-  () => import("./features/transport_routes/TransportRoutesPage"),
+  () => import("@/features/transport_routes/TransportRoutesPage"),
 );
-const FleetPage = lazy(() => import("./features/fleet/FleetPage"));
+const FleetPage = lazy(() => import("@/features/fleet/FleetPage"));
 const SuggestionsPage = lazy(
-  () => import("./features/suggestions/SuggestionsPage"),
+  () => import("@/features/suggestions/SuggestionsPage"),
+);
+// Se importan los archivos directamente para que la página pública no arrastre
+// qrcode.react, Recharts ni Google Maps.
+const VehicleFeedbackPage = lazy(
+  () => import("@/features/vehicle_feedback/VehicleFeedbackPage"),
+);
+const PublicFeedbackPage = lazy(
+  () => import("@/features/vehicle_feedback/PublicFeedbackPage"),
 );
 
 const NAV_ITEMS: [string, string][] = [
   ["/dashboard", "Dashboard"],
   ["/routes", "Rutas"],
   ["/fleet", "Flota"],
-  ["/suggestions", "Sugerencias"],
+  ["/suggestions", "Sugerencias generales"],
+  ["/vehicle-feedback", "Calificaciones QR"],
 ];
 
-function AdminLayout() {
+export function AdminLayout() {
   const { isAuthenticated, isAdmin, user, logout } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
@@ -78,11 +87,22 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
 
+      {/* Página pública del QR: fuera de AdminLayout, sin inicio de sesión. */}
+      <Route
+        path="/q/:token"
+        element={
+          <Suspense fallback={<p className="hint">Cargando...</p>}>
+            <PublicFeedbackPage />
+          </Suspense>
+        }
+      />
+
       <Route element={<AdminLayout />}>
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/routes" element={<TransportRoutesPage />} />
         <Route path="/fleet" element={<FleetPage />} />
         <Route path="/suggestions" element={<SuggestionsPage />} />
+        <Route path="/vehicle-feedback" element={<VehicleFeedbackPage />} />
         <Route path="/rutas" element={<Navigate to="/routes" replace />} />
         <Route path="/flota" element={<Navigate to="/fleet" replace />} />
       </Route>

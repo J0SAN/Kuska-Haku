@@ -19,4 +19,12 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // Los componentes de shadcn/ui exportan helpers junto al componente
+    // (buttonVariants, badgeVariants…), lo que dispara react-refresh.
+    files: ['src/shared/ui/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

@@ -5,6 +5,7 @@ interface Props {
   onCancel: () => void;
 }
 
+// Diálogo legado del panel. Las pantallas nuevas usan AlertDialog de shadcn.
 export function ConfirmDialog({ title, message, onConfirm, onCancel }: Props) {
   return (
     <div className="dialog-backdrop" role="dialog" aria-modal="true">

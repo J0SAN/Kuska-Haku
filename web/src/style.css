@@ -1,3 +1,40 @@
+@import "tailwindcss";
+
+/*
+ * Tokens de shadcn/ui mapeados a la identidad verde de Kuska Haku.
+ * Las utilidades de Tailwind (bg-primary, text-muted-foreground…) leen
+ * estos valores desde @theme inline.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
 /* Identidad visual de Kuska Haku: tonos de verde contrastados con blancos. */
 
 :root {
@@ -11,6 +48,32 @@
   --gris-borde: #dfe7e0;
   --rojo: #c62828;
 
+  /* Tokens shadcn/ui */
+  --radius: 0.625rem;
+  --background: #f1f8f2;
+  --foreground: #37474f;
+  --card: #ffffff;
+  --card-foreground: #37474f;
+  --popover: #ffffff;
+  --popover-foreground: #37474f;
+  --primary: #2e7d32;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f8f2;
+  --secondary-foreground: #1b5e20;
+  --muted: #f1f8f2;
+  --muted-foreground: #607d8b;
+  --accent: #e3f1e4;
+  --accent-foreground: #1b5e20;
+  --destructive: #c62828;
+  --border: #dfe7e0;
+  --input: #dfe7e0;
+  --ring: #4caf50;
+  --chart-1: #2e7d32;
+  --chart-2: #a5d6a7;
+  --chart-3: #1b5e20;
+  --chart-4: #607d8b;
+  --chart-5: #c62828;
+
   font-family:
     system-ui,
     -apple-system,
@@ -20,14 +83,16 @@
   color: var(--gris-texto);
 }
 
-* {
-  box-sizing: border-box;
-}
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
 
-body {
-  margin: 0;
-  background: var(--verde-050);
-  color: var(--gris-texto);
+  body {
+    margin: 0;
+    background: var(--verde-050);
+    color: var(--gris-texto);
+  }
 }
 
 /* --- Login --- */
@@ -70,40 +135,44 @@ body {
   color: var(--verde-700);
 }
 
-label {
-  font-size: 13px;
-  font-weight: 600;
-  margin-top: 8px;
-}
+@layer base {
+  label {
+    font-size: 13px;
+    font-weight: 600;
+    margin-top: 8px;
+  }
 
-input,
-select {
-  padding: 10px;
-  border: 1px solid var(--gris-borde);
-  border-radius: 6px;
-  font-size: 14px;
-  background: var(--blanco);
-  color: var(--gris-texto);
-}
+  input,
+  select {
+    padding: 10px;
+    border: 1px solid var(--gris-borde);
+    border-radius: 6px;
+    font-size: 14px;
+    background: var(--blanco);
+    color: var(--gris-texto);
+  }
 
-input:focus,
-select:focus {
-  outline: 2px solid var(--verde-500);
-  outline-offset: 1px;
+  input:focus,
+  select:focus {
+    outline: 2px solid var(--verde-500);
+    outline-offset: 1px;
+  }
 }
 
 /* --- Botones --- */
-button {
-  cursor: pointer;
-  border-radius: 6px;
-  font-size: 14px;
-  padding: 10px 16px;
-  border: 1px solid transparent;
-}
+@layer base {
+  button {
+    cursor: pointer;
+    border-radius: 6px;
+    font-size: 14px;
+    padding: 10px 16px;
+    border: 1px solid transparent;
+  }
 
-button:disabled {
-  opacity: 0.6;
-  cursor: default;
+  button:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
 }
 
 .primary {
@@ -177,14 +246,16 @@ button:disabled {
   margin: 0 auto;
 }
 
-h2 {
-  color: var(--verde-900);
-  margin-top: 0;
-}
+@layer base {
+  h2 {
+    color: var(--verde-900);
+    margin-top: 0;
+  }
 
-h3 {
-  color: var(--verde-700);
-  margin-top: 32px;
+  h3 {
+    color: var(--verde-700);
+    margin-top: 32px;
+  }
 }
 
 .hint {
@@ -372,4 +443,29 @@ h3 {
   background: var(--verde-700);
   color: var(--blanco);
   border-color: var(--verde-700);
+}
+
+/* --- Impresión del sticker QR --- */
+@layer base {
+  @media print {
+    body * {
+      visibility: hidden;
+    }
+
+    .print-sheet,
+    .print-sheet * {
+      visibility: visible;
+    }
+
+    .print-sheet {
+      position: absolute;
+      inset: 0;
+      display: block !important;
+    }
+
+    body {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+  }
 }

@@ -1,11 +1,9 @@
 import { useState, useEffect } from "react";
-import apiClient, {
-  getErrorMessage,
-  type FleetData,
-  type RouteData,
-  type UserData,
-} from "../../api/client";
-import { ConfirmDialog } from "../ConfirmDialog";
+import httpClient, { getErrorMessage } from "@/shared/api/httpClient";
+import type { FleetData } from "./fleet.types";
+import type { RouteData } from "@/features/transport_routes";
+import type { UserData } from "@/features/auth";
+import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 
 export default function FleetPage() {
   const [routes, setRoutes] = useState<RouteData[]>([]);
@@ -24,9 +22,9 @@ export default function FleetPage() {
     const loadInitialData = async () => {
       try {
         const [routesRes, fleetRes, driversRes] = await Promise.all([
-          apiClient.get<RouteData[]>("/admin/routes"),
-          apiClient.get<FleetData[]>("/admin/fleet"),
-          apiClient.get<UserData[]>("/admin/users?role=driver"),
+          httpClient.get<RouteData[]>("/admin/routes"),
+          httpClient.get<FleetData[]>("/admin/fleet"),
+          httpClient.get<UserData[]>("/admin/users?role=driver"),
         ]);
         if (isMounted) {
           const loadedRoutes = routesRes.data || [];
@@ -52,7 +50,7 @@ export default function FleetPage() {
   }, []);
 
   const refreshFleet = async () => {
-    const fleetRes = await apiClient.get<FleetData[]>("/admin/fleet");
+    const fleetRes = await httpClient.get<FleetData[]>("/admin/fleet");
     setFleet(fleetRes.data || []);
   };
 
@@ -72,7 +70,7 @@ export default function FleetPage() {
     setIsSaving(true);
     try {
       const trimmedDriver = driverId.trim();
-      await apiClient.post("/admin/fleet", {
+      await httpClient.post("/admin/fleet", {
         busId: busId.trim(),
         routeId,
         driverId: trimmedDriver ? trimmedDriver : null,
@@ -92,7 +90,7 @@ export default function FleetPage() {
   const handleAssignDriver = async (bus: FleetData, newDriverId: string) => {
     setError(null);
     try {
-      await apiClient.put(`/admin/fleet/${bus.id}`, {
+      await httpClient.put(`/admin/fleet/${bus.id}`, {
         busId: bus.busId,
         routeId: bus.routeId,
         driverId: newDriverId ? newDriverId : null,
@@ -109,7 +107,7 @@ export default function FleetPage() {
     if (!busToDelete) return;
     setError(null);
     try {
-      await apiClient.delete(`/admin/fleet/${busToDelete.id}`);
+      await httpClient.delete(`/admin/fleet/${busToDelete.id}`);
       await refreshFleet();
     } catch (err) {
       setError(getErrorMessage(err, "Error eliminando el bus"));

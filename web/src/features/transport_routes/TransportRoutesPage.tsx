@@ -5,8 +5,9 @@ import {
   Polyline,
   Marker,
 } from "@react-google-maps/api";
-import apiClient, { getErrorMessage, type RouteData } from "../../api/client";
-import { ConfirmDialog } from "../ConfirmDialog";
+import httpClient, { getErrorMessage } from "@/shared/api/httpClient";
+import type { RouteData } from "./transport_routes.types";
+import { ConfirmDialog } from "@/shared/ui/ConfirmDialog";
 
 const CAJAMARCA_CENTER = { lat: -7.1611, lng: -78.5127 };
 
@@ -28,7 +29,7 @@ export default function TransportRoutesPage() {
 
     const loadRoutes = async () => {
       try {
-        const response = await apiClient.get<RouteData[]>("/admin/routes");
+        const response = await httpClient.get<RouteData[]>("/admin/routes");
         if (isMounted) {
           setRoutes(response.data || []);
         }
@@ -47,7 +48,7 @@ export default function TransportRoutesPage() {
   }, []);
 
   const refreshRoutes = async () => {
-    const response = await apiClient.get<RouteData[]>("/admin/routes");
+    const response = await httpClient.get<RouteData[]>("/admin/routes");
     setRoutes(response.data || []);
   };
 
@@ -80,7 +81,7 @@ export default function TransportRoutesPage() {
         longitude: p.lng,
       }));
 
-      await apiClient.post("/admin/routes", {
+      await httpClient.post("/admin/routes", {
         name: routeName.trim(),
         path: payloadPath,
       });
@@ -99,7 +100,7 @@ export default function TransportRoutesPage() {
     if (!routeToDelete) return;
     setError(null);
     try {
-      await apiClient.delete(`/admin/routes/${routeToDelete.id}`);
+      await httpClient.delete(`/admin/routes/${routeToDelete.id}`);
       await refreshRoutes();
     } catch (err) {
       setError(getErrorMessage(err, "Error eliminando la ruta"));

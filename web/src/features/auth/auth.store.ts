@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { jwtDecode } from "jwt-decode";
+import { queryClient } from "@/app/queryClient";
 
 // Interfaz basada en el registro de usuarios de nuestro backend Go
 interface JwtPayload {
@@ -31,8 +32,7 @@ const initializeState = () => {
         return { token: null, user: null };
       }
       return { token, user: decodedUser };
-    } catch (error) {
-      console.error("Error decodificando el token:", error);
+    } catch {
       localStorage.removeItem("kuskahaku_token");
     }
   }
@@ -64,6 +64,7 @@ export const useAuthStore = create<AuthState>((set) => {
     // Se llamará al presionar "Cerrar sesión" o cuando el interceptor de Axios detecte un 401
     logout: () => {
       localStorage.removeItem("kuskahaku_token");
+      queryClient.clear();
       set({
         token: null,
         user: null,

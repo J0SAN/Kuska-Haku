@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import apiClient, { getErrorMessage } from "../../api/client";
-import { useAuthStore } from "../../store/authStore";
+import httpClient, { getErrorMessage } from "@/shared/api/httpClient";
+import { useAuthStore } from "@/features/auth/auth.store";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -18,7 +18,7 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
-      const response = await apiClient.post("/auth/login", {
+      const response = await httpClient.post("/auth/login", {
         email: email.trim(),
         password,
       });

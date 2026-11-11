@@ -8,10 +8,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import apiClient, {
-  getErrorMessage,
-  type DashboardData,
-} from "../../api/client";
+import httpClient, { getErrorMessage } from "@/shared/api/httpClient";
+import type { DashboardData } from "./dashboard.types";
 
 const penFormatter = new Intl.NumberFormat("es-PE", {
   style: "currency",
@@ -28,7 +26,7 @@ export default function DashboardPage() {
   useEffect(() => {
     let isCancelled = false;
 
-    apiClient
+    httpClient
       .get<DashboardData>(`/admin/dashboard?days=${days}`)
       .then((res) => {
         if (!isCancelled) {

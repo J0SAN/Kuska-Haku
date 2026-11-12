@@ -111,7 +111,9 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   }
 
   void _connectWebSocket(RouteInfo route) {
-    final encodedRoute = Uri.encodeComponent(route.name);
+    // El canal en Redis es `route:<routeID>:positions` y la ingesta usa el UUID
+    // de la ruta; suscribirse por nombre abre un canal donde nadie publica.
+    final encodedRoute = Uri.encodeComponent(route.id);
     final uri = Uri.parse(
       '${AppConfig.wsScheme}://${AppConfig.backendHost}/ws/routes/$encodedRoute',
     ).replace(queryParameters: {'token': widget.session.token});

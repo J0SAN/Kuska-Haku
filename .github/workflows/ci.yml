@@ -66,9 +66,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Versión fijada a la de desarrollo: desde 3.47 `package:flutter/material.dart`
+      # está obsoleto (se movió a material_ui) y `flutter analyze` falla por esos avisos.
       - uses: subosito/flutter-action@v2
         with:
           channel: "stable"
+          flutter-version: "3.44.1"
 
       - name: Instalar paquetes
         run: flutter pub get
